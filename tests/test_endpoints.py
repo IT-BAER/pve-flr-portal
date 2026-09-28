@@ -311,6 +311,95 @@ def test_browse_disk_level_flattens_lone_part(client, monkeypatch):
     assert "tok-efidisk0-raw-1" in resp.text  # the "part" folder's own child, shown directly instead
 
 
+def test_browse_annotates_windows_drive_letter_on_partition_folder(client, monkeypatch):
+    """Issue #77: a flattened partition folder ("1" under drive-efidisk0,
+    same fixture as the flatten test above) gets its resolved drive
+    letter appended for display - but the raw data-label used to build
+    the navigational crumb trail must stay untouched ("1", not
+    "1 (C:)"), since resolve_original_directory later parses that label
+    as a partition number."""
+    from backend import guest_agent, guest_original_location
+
+    monkeypatch.setattr(pve_client, "list_path", _fake_lvm_list_path)
+
+    async def fake_caps(session, guest_type, vmid):
+        return _available_caps(design_b=guest_agent.PathAvailability(True))
+
+    async def fake_disk_number(session, vmid, node, volume, disk_label):
+        assert disk_label == "drive-efidisk0.img.fidx"
+        return 0
+
+    async def fake_letters(session, vmid, node, disk_number):
+        assert disk_number == 0
+        return {"1": "C:"}
+
+    monkeypatch.setattr(guest_agent, "get_restore_capabilities", fake_caps)
+    monkeypatch.setattr(guest_original_location, "resolve_windows_disk_number", fake_disk_number)
+    monkeypatch.setattr(guest_original_location, "list_windows_drive_letters", fake_letters)
+
+    crumbs = json.dumps(
+        [{"label": "Root", "filepath": "/"}, {"label": "drive-efidisk0.img.fidx", "filepath": "tok-efidisk0"}]
+    )
+    resp = client.get("/api/browse", params={"volume": _LVM_VOLUME, "filepath": "tok-efidisk0", "crumbs": crumbs})
+    assert resp.status_code == 200
+    assert "1 (C:)" in resp.text
+    assert 'data-label="1"' in resp.text
+    # Carried separately for the breadcrumb bar to render "1 (C:)" once
+    # this folder is entered - never folded into data-label itself.
+    assert 'data-drive-letter="C:"' in resp.text
+
+
+def test_tree_annotates_windows_drive_letter_on_partition_folder(client, monkeypatch):
+    """Same annotation, /api/tree side - the displayed label gets the
+    drive letter, but the embedded crumbs_json keeps the raw "1"."""
+    from backend import guest_agent, guest_original_location
+
+    monkeypatch.setattr(pve_client, "list_path", _fake_lvm_list_path)
+
+    async def fake_caps(session, guest_type, vmid):
+        return _available_caps(design_b=guest_agent.PathAvailability(True))
+
+    async def fake_disk_number(session, vmid, node, volume, disk_label):
+        return 0
+
+    async def fake_letters(session, vmid, node, disk_number):
+        return {"1": "C:"}
+
+    monkeypatch.setattr(guest_agent, "get_restore_capabilities", fake_caps)
+    monkeypatch.setattr(guest_original_location, "resolve_windows_disk_number", fake_disk_number)
+    monkeypatch.setattr(guest_original_location, "list_windows_drive_letters", fake_letters)
+
+    crumbs = json.dumps(
+        [{"label": "Root", "filepath": "/"}, {"label": "drive-efidisk0.img.fidx", "filepath": "tok-efidisk0"}]
+    )
+    resp = client.get("/api/tree", params={"volume": _LVM_VOLUME, "filepath": "tok-efidisk0", "crumbs": crumbs})
+    assert resp.status_code == 200
+    assert "1 (C:)" in resp.text
+    assert "&#34;label&#34;: &#34;1&#34;" in resp.text
+    # Carried as a separate crumbs_json field for the breadcrumb bar -
+    # never folded into "label" itself.
+    assert "&#34;driveLetter&#34;: &#34;C:&#34;" in resp.text
+
+
+def test_browse_skips_drive_letter_annotation_for_containers(client, monkeypatch):
+    """Issue #77: containers have no guest agent/disk concept at all -
+    must never even attempt the capability check."""
+    from backend import guest_agent
+
+    async def fake_ct_list_path(session, volume, filepath="/"):
+        return [{"text": "1", "leaf": False, "filepath": "a"}]
+
+    async def boom(session, guest_type, vmid):
+        raise AssertionError("must not check restore capabilities for a container")
+
+    monkeypatch.setattr(pve_client, "list_path", fake_ct_list_path)
+    monkeypatch.setattr(guest_agent, "get_restore_capabilities", boom)
+    resp = client.get(
+        "/api/browse", params={"volume": "pbs:backup/ct/205/2026-09-25T00:00:00Z", "filepath": "/", "crumbs": "[]"}
+    )
+    assert resp.status_code == 200
+
+
 _UNREADABLE_TREE = {
     "/": [{"text": "drive-scsi0.img.fidx", "leaf": False, "filepath": "d0"}],
     "d0": [{"text": "part", "leaf": False, "filepath": "d0-part"}],

@@ -513,6 +513,55 @@ async def _filter_unmountable_children(
     return entries
 
 
+async def _annotate_windows_drive_letters(session: SessionData, volume: str, crumbs: list, entries: list[dict]) -> None:
+    """Issue #77: sets a numbered partition folder entry's own
+    `drive_letter` key when it resolves to a real drive letter in the
+    running Windows guest, for a template to render as "2 (C:)" - a
+    display-only annotation, never written into `text` itself, since
+    `text` is also reused verbatim as the navigational crumb label
+    (file_grid.html's `data-label`, tree_nodes.html's `crumbs_json`)
+    that resolve_original_directory later parses; corrupting it there
+    would break original-location restore for anything browsed through
+    an annotated folder.
+
+    Cosmetic only - silently a no-op (never raises) for anything else: a
+    container, a Linux/unreachable/powered-off guest, a non-partition-
+    listing position (root, inside a filesystem, an LVM volume group's
+    own LVs), or any live-lookup failure. Deliberately broad about what
+    it swallows - this runs on every disk-folder expansion, not behind
+    an explicit user action with its own capability check the way
+    restore-to-original-location is, so a flaky guest agent must never
+    turn into a broken tree/browse view. Callers should run this after
+    _filter_unmountable_children (issue #80), not before - no point
+    querying guest-exec for a drive letter on an entry that's about to
+    be hidden anyway."""
+    try:
+        guest_type, vmid, _iso = _parse_volid(volume)
+    except ValueError:
+        return
+    if guest_type != "vm":
+        return
+    disk_label = guest_original_location.disk_label_for_partition_listing(crumbs)
+    if disk_label is None:
+        return
+    try:
+        caps = await guest_agent.get_restore_capabilities(session, "vm", vmid)
+        if caps.guest_os_family != "windows" or not caps.design_b.available:
+            return
+        disk_number = await guest_original_location.resolve_windows_disk_number(
+            session, vmid, caps.node, volume, disk_label
+        )
+        if disk_number is None:
+            return
+        letters = await guest_original_location.list_windows_drive_letters(session, vmid, caps.node, disk_number)
+    except Exception:
+        return
+    for entry in entries:
+        letter = letters.get(entry.get("text", ""))
+        if letter:
+            entry["drive_letter"] = letter
+
+
 def _pve_error_message(exc: httpx.HTTPStatusError) -> str:
     reason = exc.response.reason_phrase
     if reason and reason.strip().lower() not in ("bad request", ""):
@@ -546,6 +595,7 @@ async def browse(
     parent_crumbs = json.loads(crumbs)
     entries, lvm_names = await _apply_lvm_view(session, volume, filepath, parent_crumbs, entries)
     entries = await _filter_unmountable_children(session, volume, parent_crumbs, entries)
+    await _annotate_windows_drive_letters(session, volume, parent_crumbs, entries)
     for entry in entries:
         entry.setdefault("mtime", None)
         entry.setdefault("size", None)
@@ -589,14 +639,26 @@ async def tree(
     # be in) - /api/browse already sorts its entries, this endpoint didn't.
     entries = sorted((e for e in entries if not bool(e.get("leaf", True))), key=lambda e: e.get("text", "").lower())
     entries = await _filter_unmountable_children(session, volume, parent_crumbs, entries)
+    await _annotate_windows_drive_letters(session, volume, parent_crumbs, entries)
     nodes = []
     for entry in entries:
         text = entry.get("text", "")
-        child_crumbs = [*parent_crumbs, {"label": text, "filepath": entry["filepath"]}]
+        drive_letter = entry.get("drive_letter")
+        child_crumb = {"label": text, "filepath": entry["filepath"]}
+        if drive_letter:
+            # Display-only, same as file_grid.html's data-drive-letter -
+            # never folded into `label` itself, which the backend's own
+            # crumb parsing (resolve_original_directory and friends)
+            # reads as the raw partition number/disk label. Harmless
+            # extra field otherwise: crumb parsing only ever reads
+            # `label`/`filepath`.
+            child_crumb["driveLetter"] = drive_letter
+        child_crumbs = [*parent_crumbs, child_crumb]
         nodes.append(
             {
                 "filepath": entry["filepath"],
                 "text": text,
+                "drive_letter": drive_letter,
                 "type_label": "LVM Volume" if text in lvm_names else _type_label(entry, at_root),
                 "crumbs_json": json.dumps(child_crumbs),
             }
