@@ -25,6 +25,19 @@
 #   CERTBOT_PROPAGATION_SECONDS (default: 30)
 #   CERTBOT_EMAIL              (default: unset -> --register-unsafely-without-email;
 #                                set this if you want renewal-failure notices)
+#   ACME_SERVER                (default: unset -> certbot's own default, Let's
+#                                Encrypt's production directory. Point this at
+#                                an internal ACME server instead - e.g. an
+#                                acme2certifier instance fronting your own PKI
+#                                - by setting it to that server's directory
+#                                URL, e.g.
+#                                https://acme.internal.example.com/directory.
+#                                If that server's own TLS cert isn't from a
+#                                publicly-trusted CA, its issuing CA needs to
+#                                be trusted by this container first
+#                                (update-ca-certificates) - certbot has no
+#                                separate "skip TLS verification of the ACME
+#                                server itself" flag.)
 #   APP_DIR                    (default: /opt/pve-flr-portal)
 set -euo pipefail
 
@@ -76,6 +89,11 @@ if [ -n "${CERTBOT_EMAIL:-}" ]; then
   EMAIL_ARGS=(--email "$CERTBOT_EMAIL")
 fi
 
+SERVER_ARGS=()
+if [ -n "${ACME_SERVER:-}" ]; then
+  SERVER_ARGS=(--server "$ACME_SERVER")
+fi
+
 echo "==> Requesting a certificate for: $*"
 certbot certonly --non-interactive --agree-tos "${EMAIL_ARGS[@]}" \
   --cert-name "$CERT_NAME" \
@@ -83,6 +101,7 @@ certbot certonly --non-interactive --agree-tos "${EMAIL_ARGS[@]}" \
   "--dns-${CERTBOT_DNS_PLUGIN}-credentials" "$CERTBOT_CREDENTIALS_FILE" \
   "--dns-${CERTBOT_DNS_PLUGIN}-propagation-seconds" "$CERTBOT_PROPAGATION_SECONDS" \
   --deploy-hook "$HOOK" \
+  "${SERVER_ARGS[@]}" \
   "${DOMAIN_ARGS[@]}"
 
 # --deploy-hook is saved as the cert's renew_hook, so certbot.timer's

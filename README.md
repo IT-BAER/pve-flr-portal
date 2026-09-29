@@ -324,6 +324,17 @@ TXT record instead.
    flr-data.example.com`) and set `PFR_ACME_DATA_PLANE=1` in `.env`
    first.
 
+**Using an internal ACME server instead of Let's Encrypt** (e.g. an
+[acme2certifier](https://github.com/grindsa/acme2certifier) instance
+fronting your own internal PKI): set `ACME_SERVER` to that server's
+directory URL, e.g. `ACME_SERVER=https://acme.internal.example.com/directory
+bash deploy/certbot-setup.sh flr.internal.example.com`. certbot records
+the server in the certificate's own renewal config, so `certbot renew`
+keeps using it automatically — no extra step. If that server's own TLS
+cert isn't from a publicly-trusted CA, its issuing CA needs to be
+trusted by the container first (`update-ca-certificates`); certbot has
+no separate flag to skip verifying the ACME server's own TLS.
+
 `tls.py` never overwrites or deletes an admin-supplied cert (only a
 broken *self-signed* one), so pointing it at a certbot-managed path is
 safe — certbot renews in place, the hook re-copies, the app just sees a

@@ -756,6 +756,21 @@ data-plane hostname. Safe by construction: `ensure_self_signed_cert`/
 cert (only a broken *self-signed* one), so a certbot-managed path is
 just another admin-supplied cert as far as `tls.py` is concerned.
 
+`certbot-setup.sh` also takes an `ACME_SERVER` override (a directory
+URL) so an internal ACME server — e.g. an
+[acme2certifier](https://github.com/grindsa/acme2certifier) instance
+fronting an internal PKI, rather than Let's Encrypt itself — can be
+used. certbot writes the server into the certificate's own
+`renewalparams`, so `certbot renew` (and therefore
+`certbot-deploy-hook.sh` as its `renew_hook`) keeps targeting the same
+server with no extra plumbing on this project's side. The one thing
+outside this script's control: if that internal server's own TLS cert
+isn't from a publicly-trusted CA, its issuing CA has to be trusted by
+the container first (`update-ca-certificates`) — certbot has no
+`--no-verify-ssl`-equivalent for the ACME server itself (that flag,
+where it exists at all, is about challenge-verification requests, not
+the ACME connection).
+
 **Resolved (2026-08-30):**
 - `storage/content` verification shape confirmed (7.1 implementation
   note above).
