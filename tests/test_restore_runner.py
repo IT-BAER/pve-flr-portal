@@ -674,41 +674,17 @@ async def test_restore_ownership_runs_chown_and_chmod_on_linux(manager, session_
     assert any("Restoring original ownership" in line for line in job.log_lines)
 
 
-def test_decompress_prefix_detects_and_decompresses_zstd():
-    """Direct unit test of the fix's own logic, not just the end-to-end
-    flow: Python 3.14's tarfile.open() auto-detects zstd natively
-    (stdlib gained zstd support that release), which silently masks a
-    missing _decompress_prefix call in THIS dev environment - the
-    actual Docker deployment target is Python 3.11 (README's own
-    testing note), which has no such native support and is exactly
-    where the live bug this fixes actually happened. This test exists
-    so the fix is verified regardless of which Python runs the suite."""
-    import zstandard
-
-    from backend.restore_runner import _decompress_prefix
-
-    plain = b"some tar-shaped bytes - doesn't need to be a real tar for this check"
-    compressed = zstandard.ZstdCompressor().compress(plain)
-    assert _decompress_prefix(compressed) == plain
-
-
-def test_decompress_prefix_leaves_non_zstd_bytes_untouched():
-    from backend.restore_runner import _decompress_prefix
-
-    plain = b"ustar\x00not zstd-framed at all - must pass through unchanged"
-    assert _decompress_prefix(plain) == plain
-
-
 async def test_restore_ownership_handles_zstd_compressed_tar_too(manager, session_data, monkeypatch):
     """Regression: live-reported 2026-09-28 - PVE's tar=1 output is not
     consistently one format. A real restore came back zstd-framed
     (starting with the zstd magic number) even though an earlier live
     test of the same endpoint/parameter came back as a genuine plain
-    tar - the fetch must handle either, not assume plain tar. See the
-    two _decompress_prefix unit tests above for the version-independent
-    regression guard - Python 3.14 (this dev environment) can mask this
-    specific bug via tarfile's own native zstd auto-detection, unlike
-    the Python 3.11 Docker deployment target where it was actually hit."""
+    tar - the fetch must handle either, not assume plain tar. See
+    test_pve_client.py's decompress_zstd_prefix unit tests for the
+    version-independent regression guard - Python 3.14 (this dev
+    environment) can mask this specific bug via tarfile's own native
+    zstd auto-detection, unlike the Python 3.11 Docker deployment
+    target where it was actually hit."""
     import zstandard
 
     job = _make_job(manager, session_data, destination="/etc/hosts", restore_ownership=True)
@@ -1609,7 +1585,9 @@ def _patch_build_bundle(monkeypatch, tmp_path, content: bytes, fmt=BundleFormat.
     for i in range(manifest_len):
         manifest.add(f"file{i}", "deadbeef")
 
-    async def fake_build_bundle(session, volume, items, guest_os_family, zst_capable, on_item_progress=None):
+    async def fake_build_bundle(
+        session, volume, items, guest_os_family, zst_capable, on_item_progress=None, restore_ownership=False
+    ):
         return bundle_path, fmt, manifest, _NoopTempDirCtx()
 
     monkeypatch.setattr(restore_bundle, "build_bundle", fake_build_bundle)
@@ -1820,7 +1798,9 @@ async def test_bundle_restore_logs_and_tracks_progress_during_build(manager, ses
 
     seen_progress = []
 
-    async def fake_build_bundle(session, volume, items, guest_os_family, zst_capable, on_item_progress=None):
+    async def fake_build_bundle(
+        session, volume, items, guest_os_family, zst_capable, on_item_progress=None, restore_ownership=False
+    ):
         if on_item_progress is not None:
             on_item_progress(item, 1000, 3000)
             seen_progress.append((job.progress_current, job.progress_total))
@@ -1885,7 +1865,9 @@ async def test_bundle_restore_progress_stays_none_without_content_length(manager
 
     seen_percent_during_download = []
 
-    async def fake_build_bundle(session, volume, items, guest_os_family, zst_capable, on_item_progress=None):
+    async def fake_build_bundle(
+        session, volume, items, guest_os_family, zst_capable, on_item_progress=None, restore_ownership=False
+    ):
         if on_item_progress is not None:
             on_item_progress(item, 1904640, None)  # no Content-Length, same as the live report
             seen_percent_during_download.append(job.progress_percent)
@@ -2103,7 +2085,9 @@ async def test_bundle_restore_cleans_up_scratch_and_temp_dir_on_failure(manager,
         def cleanup(self):
             cleanup_calls.append(1)
 
-    async def fake_build_bundle(session, volume, items, guest_os_family, zst_capable, on_item_progress=None):
+    async def fake_build_bundle(
+        session, volume, items, guest_os_family, zst_capable, on_item_progress=None, restore_ownership=False
+    ):
         return bundle_path, BundleFormat.TAR_GZ, manifest, _TrackedTempDirCtx()
 
     monkeypatch.setattr(restore_bundle, "build_bundle", fake_build_bundle)
