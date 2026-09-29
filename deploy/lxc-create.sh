@@ -225,6 +225,8 @@ TLS_MINIMUM="${TLS_MINIMUM:-insecure}"
 SETUP_LE="${SETUP_LE:-no}"
 LE_DOMAINS="${LE_DOMAINS:-}"
 ACME_SERVER="${ACME_SERVER:-}"
+CERTBOT_KEY_TYPE="${CERTBOT_KEY_TYPE:-}"
+CERTBOT_RSA_KEY_SIZE="${CERTBOT_RSA_KEY_SIZE:-}"
 
 if [ "$USE_ADVANCED" = "yes" ]; then
   ask_value DISK_GB "Disk size (GB)" "$DISK_GB"
@@ -252,6 +254,10 @@ if [ "$USE_ADVANCED" = "yes" ]; then
     ask_yesno USE_INTERNAL_ACME "Use an internal ACME server instead of Let's Encrypt (e.g. acme2certifier)?" "no"
     if [ "$USE_INTERNAL_ACME" = "yes" ]; then
       ask_value ACME_SERVER "Internal ACME server directory URL" ""
+      ask_menu CERTBOT_KEY_TYPE "Key type (leave default unless your CA doesn't support it)" "ecdsa" "ecdsa" "rsa"
+      if [ "$CERTBOT_KEY_TYPE" = "rsa" ]; then
+        ask_value CERTBOT_RSA_KEY_SIZE "RSA key size" "2048"
+      fi
     fi
   fi
 fi
@@ -418,11 +424,16 @@ if [ "$SETUP_LE" = "yes" ] && [ -n "$LE_DOMAINS" ]; then
   echo "    e.g.: pct push $CTID <local-file> /etc/letsencrypt/${CERTBOT_DNS_PLUGIN}-credentials.ini"
   echo "          pct exec $CTID -- chmod 600 /etc/letsencrypt/${CERTBOT_DNS_PLUGIN}-credentials.ini"
   CERTBOT_ENV=("CERTBOT_DNS_PLUGIN=${CERTBOT_DNS_PLUGIN}")
-  LATER_CMD="pct exec $CTID -- bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
-  if [ -n "$ACME_SERVER" ]; then
-    CERTBOT_ENV+=("ACME_SERVER=${ACME_SERVER}")
-    LATER_CMD="pct exec $CTID -- env \"ACME_SERVER=${ACME_SERVER}\" bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
-  fi
+  [ -n "$ACME_SERVER" ] && CERTBOT_ENV+=("ACME_SERVER=${ACME_SERVER}")
+  [ -n "$CERTBOT_KEY_TYPE" ] && CERTBOT_ENV+=("CERTBOT_KEY_TYPE=${CERTBOT_KEY_TYPE}")
+  [ -n "$CERTBOT_RSA_KEY_SIZE" ] && CERTBOT_ENV+=("CERTBOT_RSA_KEY_SIZE=${CERTBOT_RSA_KEY_SIZE}")
+
+  LATER_CMD="pct exec $CTID -- env"
+  for kv in "${CERTBOT_ENV[@]}"; do
+    LATER_CMD="$LATER_CMD \"$kv\""
+  done
+  LATER_CMD="$LATER_CMD bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
+
   ask_yesno RUN_LE_NOW "Credentials file in place - issue the certificate now?" "no"
   if [ "$RUN_LE_NOW" = "yes" ]; then
     # shellcheck disable=SC2086 # LE_DOMAINS is deliberately word-split into separate -d arguments
