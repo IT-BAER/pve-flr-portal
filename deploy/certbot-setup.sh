@@ -38,6 +38,15 @@
 #                                (update-ca-certificates) - certbot has no
 #                                separate "skip TLS verification of the ACME
 #                                server itself" flag.)
+#   CERTBOT_KEY_TYPE           (default: unset -> certbot's own default,
+#                                currently ecdsa on recent certbot versions.
+#                                Set to "rsa" for a CA that doesn't support
+#                                ECDSA yet - many internal ACME servers,
+#                                including some acme2certifier setups.)
+#   CERTBOT_RSA_KEY_SIZE       (default: unset -> certbot's own default
+#                                (2048) when CERTBOT_KEY_TYPE=rsa. Ignored
+#                                for ecdsa - use CERTBOT_ELLIPTIC_CURVE
+#                                instead if that ever needs overriding.)
 #   APP_DIR                    (default: /opt/pve-flr-portal)
 set -euo pipefail
 
@@ -100,6 +109,21 @@ if [ -n "${ACME_SERVER:-}" ]; then
   SERVER_ARGS=(--server "$ACME_SERVER")
 fi
 
+KEY_ARGS=()
+if [ -n "${CERTBOT_KEY_TYPE:-}" ]; then
+  case "$CERTBOT_KEY_TYPE" in
+    rsa|ecdsa) ;;
+    *)
+      echo "CERTBOT_KEY_TYPE must be 'rsa' or 'ecdsa', got: $CERTBOT_KEY_TYPE" >&2
+      exit 1
+      ;;
+  esac
+  KEY_ARGS+=(--key-type "$CERTBOT_KEY_TYPE")
+fi
+if [ -n "${CERTBOT_RSA_KEY_SIZE:-}" ]; then
+  KEY_ARGS+=(--rsa-key-size "$CERTBOT_RSA_KEY_SIZE")
+fi
+
 echo "==> Requesting a certificate for: $*"
 certbot certonly --non-interactive --agree-tos "${EMAIL_ARGS[@]}" \
   --cert-name "$CERT_NAME" \
@@ -108,6 +132,7 @@ certbot certonly --non-interactive --agree-tos "${EMAIL_ARGS[@]}" \
   "--dns-${CERTBOT_DNS_PLUGIN}-propagation-seconds" "$CERTBOT_PROPAGATION_SECONDS" \
   --deploy-hook "$HOOK" \
   "${SERVER_ARGS[@]}" \
+  "${KEY_ARGS[@]}" \
   "${DOMAIN_ARGS[@]}"
 
 # --deploy-hook is saved as the cert's renew_hook, so certbot.timer's

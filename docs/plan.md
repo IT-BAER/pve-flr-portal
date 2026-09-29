@@ -771,6 +771,13 @@ the container first (`update-ca-certificates`) — certbot has no
 where it exists at all, is about challenge-verification requests, not
 the ACME connection).
 
+`CERTBOT_KEY_TYPE`/`CERTBOT_RSA_KEY_SIZE` cover the other internal-CA
+mismatch found in practice: an internal CA that only issues against
+RSA (certbot's own default moved to ECDSA on recent versions), and/or
+wants a non-default key size (4096 rather than certbot's default
+2048). Both flags land in the same `renewalparams` as `--server`, so
+renewal stays consistent automatically.
+
 **Resolved (2026-08-30):**
 - `storage/content` verification shape confirmed (7.1 implementation
   note above).

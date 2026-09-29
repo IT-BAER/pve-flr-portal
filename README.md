@@ -335,6 +335,13 @@ cert isn't from a publicly-trusted CA, its issuing CA needs to be
 trusted by the container first (`update-ca-certificates`); certbot has
 no separate flag to skip verifying the ACME server's own TLS.
 
+**Key type/size**, if your internal CA doesn't support certbot's
+current default (ECDSA): set `CERTBOT_KEY_TYPE=rsa` and, if you need a
+non-default size, `CERTBOT_RSA_KEY_SIZE=4096` before running
+`certbot-setup.sh`. Both are recorded in the certificate's own renewal
+config too, so `certbot renew` keeps using the same key type/size
+automatically.
+
 `tls.py` never overwrites or deletes an admin-supplied cert (only a
 broken *self-signed* one), so pointing it at a certbot-managed path is
 safe — certbot renews in place, the hook re-copies, the app just sees a
