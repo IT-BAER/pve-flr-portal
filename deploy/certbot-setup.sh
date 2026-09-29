@@ -74,9 +74,15 @@ if [ "$PERMS" != "600" ]; then
   echo "Warning: $CERTBOT_CREDENTIALS_FILE is mode $PERMS, not 600 - certbot's own DNS plugins refuse to run against a group/world-readable credentials file." >&2
 fi
 
-if [ ! -x "$HOOK" ]; then
-  echo "Deploy hook not found or not executable: $HOOK" >&2
+if [ ! -f "$HOOK" ]; then
+  echo "Deploy hook not found: $HOOK" >&2
   exit 1
+fi
+if [ ! -x "$HOOK" ]; then
+  # A file this project ships and fully controls - self-heal rather
+  # than making the admin chmod it by hand (confirmed live: a fresh
+  # git clone doesn't always carry the executable bit through).
+  chmod +x "$HOOK"
 fi
 
 DOMAIN_ARGS=()
