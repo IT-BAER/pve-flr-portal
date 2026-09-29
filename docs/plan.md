@@ -739,6 +739,23 @@ admin hasn't supplied their own.
   which is about *this app* trusting *PVE's* self-signed cert when
   calling out to it — don't conflate the two in docs/config naming.
 
+**Real, CA-issued certs (issue #52, 2026-09-29):** the self-signed
+default above works but triggers a browser warning. `deploy/install.sh`
+installs `certbot` + a DNS-01 plugin (`CERTBOT_DNS_PLUGIN`, default
+`rfc2136`) by default; `deploy/certbot-setup.sh <domain>...` issues a
+cert via DNS-01 (chosen over `http-01` since a NAT'd homelab typically
+has no port 80/443 exposed to the internet), installs it at
+`TLS_CERT_FILE`/`TLS_KEY_FILE` via `deploy/certbot-deploy-hook.sh`, and
+registers that hook as the cert's `renew_hook` so `certbot.timer`
+renews automatically from then on — one command, no hand-written
+renewal glue. `PFR_ACME_DATA_PLANE=1` extends the same hook to also
+install the issued cert at `RESTORE_DATA_NIC_TLS_CERT_FILE`/`_KEY_FILE`
+(§7.6.1) when the domain passed to `certbot-setup.sh` also covers the
+data-plane hostname. Safe by construction: `ensure_self_signed_cert`/
+`ensure_data_plane_cert` never overwrite or delete an admin-supplied
+cert (only a broken *self-signed* one), so a certbot-managed path is
+just another admin-supplied cert as far as `tls.py` is concerned.
+
 **Resolved (2026-08-30):**
 - `storage/content` verification shape confirmed (7.1 implementation
   note above).

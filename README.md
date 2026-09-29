@@ -302,6 +302,33 @@ SAN; the portal won't touch an admin-supplied cert, it only logs a
 UI cert is unaffected — it's keyed to `PVE_HOST`/`localhost`, not the
 container IP.)
 
+**TLS certificates → Let's Encrypt (DNS-01, issue #52).** The
+self-signed cert above works fine but triggers a browser warning.
+`deploy/install.sh` installs `certbot` + a DNS-01 plugin
+(`CERTBOT_DNS_PLUGIN`, default `rfc2136`) by default
+(`INSTALL_CERTBOT=1`). DNS-01 is used instead of `http-01` because a
+NAT'd homelab typically has no port 80/443 exposed to the internet for
+Let's Encrypt to reach — the challenge is proven via a DNS TXT record
+instead.
+
+1. Copy `deploy/rfc2136-credentials.ini.example` (or the equivalent for
+   your plugin) to `/etc/letsencrypt/<plugin>-credentials.ini` inside
+   the container, fill in real values, `chmod 600` it.
+2. `bash deploy/certbot-setup.sh flr.example.com` — issues the cert,
+   installs it at `TLS_CERT_FILE`/`TLS_KEY_FILE`, restarts the service,
+   and wires up automatic renewal (`certbot.timer` + `deploy/certbot-deploy-hook.sh`
+   as the renewal hook — no separate step needed after this).
+3. Want the Direct Network Transfer data-plane cert issued too (instead
+   of its own auto-generated self-signed one)? Pass its hostname as an
+   extra domain (`bash deploy/certbot-setup.sh flr.example.com
+   flr-data.example.com`) and set `PFR_ACME_DATA_PLANE=1` in `.env`
+   first.
+
+`tls.py` never overwrites or deletes an admin-supplied cert (only a
+broken *self-signed* one), so pointing it at a certbot-managed path is
+safe — certbot renews in place, the hook re-copies, the app just sees a
+valid file.
+
 ## Tests
 
 ```
