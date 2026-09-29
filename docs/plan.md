@@ -743,8 +743,8 @@ admin hasn't supplied their own.
 default above works but triggers a browser warning. `deploy/install.sh`
 installs `certbot` + a DNS-01 plugin (`CERTBOT_DNS_PLUGIN`, default
 `rfc2136`) by default; `deploy/certbot-setup.sh <domain>...` issues a
-cert via DNS-01 (chosen over `http-01` since a NAT'd homelab typically
-has no port 80/443 exposed to the internet), installs it at
+cert via DNS-01 (chosen over `http-01` since this app is often deployed
+internally, with no port 80/443 exposed to the internet), installs it at
 `TLS_CERT_FILE`/`TLS_KEY_FILE` via `deploy/certbot-deploy-hook.sh`, and
 registers that hook as the cert's `renew_hook` so `certbot.timer`
 renews automatically from then on — one command, no hand-written

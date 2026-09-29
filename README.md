@@ -306,10 +306,10 @@ container IP.)
 self-signed cert above works fine but triggers a browser warning.
 `deploy/install.sh` installs `certbot` + a DNS-01 plugin
 (`CERTBOT_DNS_PLUGIN`, default `rfc2136`) by default
-(`INSTALL_CERTBOT=1`). DNS-01 is used instead of `http-01` because a
-NAT'd homelab typically has no port 80/443 exposed to the internet for
-Let's Encrypt to reach — the challenge is proven via a DNS TXT record
-instead.
+(`INSTALL_CERTBOT=1`). DNS-01 is used instead of `http-01` because this
+app is often deployed internally, with no port 80/443 exposed to the
+internet for Let's Encrypt to reach — the challenge is proven via a DNS
+TXT record instead.
 
 1. Copy `deploy/rfc2136-credentials.ini.example` (or the equivalent for
    your plugin) to `/etc/letsencrypt/<plugin>-credentials.ini` inside

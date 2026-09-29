@@ -7,10 +7,11 @@
 #   bash deploy/certbot-setup.sh flr.example.com
 #   bash deploy/certbot-setup.sh flr.example.com flr-data.example.com
 #
-# DNS-01 is used instead of http-01 because a NAT'd homelab typically
-# has no port 80/443 exposed to the internet for Let's Encrypt to reach
-# - the challenge is proven by creating a DNS TXT record instead, which
-# this host's DNS plugin does directly against the zone's nameserver.
+# DNS-01 is used instead of http-01 because this app is often deployed
+# internally, with no port 80/443 exposed to the internet for Let's
+# Encrypt to reach - the challenge is proven by creating a DNS TXT
+# record instead, which this host's DNS plugin does directly against
+# the zone's nameserver.
 #
 # Prerequisites:
 #   - certbot + python3-certbot-dns-<plugin> installed (install.sh does

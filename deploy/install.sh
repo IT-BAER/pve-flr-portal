@@ -17,10 +17,10 @@ SERVICE_NAME="pve-flr-portal"
 # hand-writing a renewal hook. Ready to go by default but skippable
 # (INSTALL_CERTBOT=0) since the self-signed cert tls.py generates works
 # fine without it. rfc2136 is the default plugin - DNS-01 is the right
-# challenge type for a NAT'd homelab (no port 80/443 exposed to the
-# internet for http-01), and rfc2136 covers any DNS server that speaks
-# RFC 2136 dynamic updates (most self-hosted DNS, many providers' BIND
-# frontends) without committing to one commercial DNS API.
+# challenge type for an internal deployment with no port 80/443 exposed
+# to the internet for http-01, and rfc2136 covers any DNS server that
+# speaks RFC 2136 dynamic updates (most self-hosted DNS, many providers'
+# BIND frontends) without committing to one commercial DNS API.
 INSTALL_CERTBOT="${INSTALL_CERTBOT:-1}"
 CERTBOT_DNS_PLUGIN="${CERTBOT_DNS_PLUGIN:-rfc2136}"
 
