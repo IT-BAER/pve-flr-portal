@@ -209,8 +209,8 @@ REPO_URL="${REPO_URL:-https://github.com/treycentric/pve-flr-portal.git}"
 # Advanced settings - off by default. Resource sizing already has
 # sensible defaults for this app (a small stateless Python process);
 # Direct Network Transfer, its TLS policy, and Let's Encrypt are all
-# homelab-specific enough that most installs don't need to touch them
-# on day one.
+# specific enough to a given deployment that most installs don't need
+# to touch them on day one.
 # ---------------------------------------------------------------------
 ask_yesno USE_ADVANCED "Configure advanced options (resource sizing, Direct Network Transfer, TLS policy, Let's Encrypt)?" "no"
 
