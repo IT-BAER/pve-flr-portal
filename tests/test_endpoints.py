@@ -1470,6 +1470,23 @@ def test_login_submit_invalid_credentials(monkeypatch):
     assert "Invalid username or password" in resp.text
 
 
+def test_login_submit_fails_cleanly_when_pve_is_unreachable(monkeypatch):
+    import httpx
+
+    async def unreachable_login(username, password):
+        raise httpx.ConnectError("Connection refused")
+
+    async def realms():
+        return [dict(r) for r in auth._FALLBACK_REALMS]
+
+    monkeypatch.setattr(auth, "login", unreachable_login)
+    monkeypatch.setattr(auth, "list_realms", realms)
+    with TestClient(main.app) as c:
+        resp = c.post("/login", data={"username": "x", "realm": "pam", "password": "y"})
+    assert resp.status_code == 502
+    assert "Could not reach PVE" in resp.text
+
+
 def test_login_submit_success_sets_cookie(monkeypatch):
     async def ok_login(username, password):
         assert username == "x@pam"

@@ -112,6 +112,24 @@ async def login_submit(
             {"error": "Invalid username or password", "notice": None, "realms": await auth.list_realms()},
             status_code=401,
         )
+    except httpx.HTTPError as exc:
+        # A transport-level failure (PVE unreachable, TLS verification
+        # failure against its cert, DNS) isn't an HTTPException - issue
+        # #98, confirmed live as an unhandled 500 with zero indication
+        # of the real cause. Logged here since the login page's own
+        # message is deliberately generic (no PVE_HOST/internals in a
+        # page anyone can reach pre-auth).
+        _log.warning("Login failed - could not reach PVE: %s", exc)
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {
+                "error": "Could not reach PVE - see the server log for details.",
+                "notice": None,
+                "realms": await auth.list_realms(),
+            },
+            status_code=502,
+        )
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         "session_id",
@@ -157,7 +175,8 @@ async def login_oidc_callback(
     redirect_url = str(request.url_for("login_oidc_callback"))
     try:
         session_id = await auth.oidc_login(state, code, redirect_url)
-    except (HTTPException, httpx.HTTPError):
+    except (HTTPException, httpx.HTTPError) as exc:
+        _log.warning("SSO login failed: %s", exc)
         realms = await auth.list_realms()
         return templates.TemplateResponse(
             request,
@@ -191,7 +210,8 @@ async def login_oidc_start(realm: str, request: Request):
     redirect_url = str(request.url_for("login_oidc_callback"))
     try:
         auth_url = await auth.oidc_auth_url(realm, redirect_url)
-    except (HTTPException, httpx.HTTPError):
+    except (HTTPException, httpx.HTTPError) as exc:
+        _log.warning("Could not start SSO login for realm %r: %s", realm, exc)
         realms = await auth.list_realms()
         return templates.TemplateResponse(
             request,
