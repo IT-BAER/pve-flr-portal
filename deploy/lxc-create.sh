@@ -224,6 +224,7 @@ TLS_PREFERRED="${TLS_PREFERRED:-verify}"
 TLS_MINIMUM="${TLS_MINIMUM:-insecure}"
 SETUP_LE="${SETUP_LE:-no}"
 LE_DOMAINS="${LE_DOMAINS:-}"
+ACME_SERVER="${ACME_SERVER:-}"
 
 if [ "$USE_ADVANCED" = "yes" ]; then
   ask_value DISK_GB "Disk size (GB)" "$DISK_GB"
@@ -244,10 +245,14 @@ if [ "$USE_ADVANCED" = "yes" ]; then
     ask_menu TLS_MINIMUM "Data-plane TLS - minimum acceptable mode" "insecure" "verify" "insecure" "plaintext"
   fi
 
-  ask_yesno SETUP_LE "Set up a Let's Encrypt certificate now (via DNS-01 - needs a DNS plugin's credentials file already in place)?" "no"
+  ask_yesno SETUP_LE "Set up a certificate now via ACME/DNS-01 (Let's Encrypt or an internal ACME server) - needs a DNS plugin's credentials file already in place?" "no"
   if [ "$SETUP_LE" = "yes" ]; then
     ask_value LE_DOMAINS "Domain(s) for the certificate (space-separated; include the data-plane hostname too if using it)" ""
     ask_value CERTBOT_DNS_PLUGIN "certbot DNS plugin" "${CERTBOT_DNS_PLUGIN:-rfc2136}"
+    ask_yesno USE_INTERNAL_ACME "Use an internal ACME server instead of Let's Encrypt (e.g. acme2certifier)?" "no"
+    if [ "$USE_INTERNAL_ACME" = "yes" ]; then
+      ask_value ACME_SERVER "Internal ACME server directory URL" ""
+    fi
   fi
 fi
 
@@ -261,7 +266,11 @@ echo "    Container storage=$STORAGE  Disk=${DISK_GB}G  Mem=${MEMORY_MB}MB  Core
 echo "    Bridge=$BRIDGE  IP=$IP_CONFIG"
 echo "    PVE_STORAGE=$PVE_STORAGE  PVE_HOST=${PVE_HOST:-<default: this host>}"
 [ "$ENABLE_DNT" = "yes" ] && echo "    Direct Network Transfer: $RESTORE_DATA_NICS_JSON (TLS $TLS_MINIMUM..$TLS_PREFERRED)"
-[ "$SETUP_LE" = "yes" ] && echo "    Let's Encrypt: $LE_DOMAINS (plugin: $CERTBOT_DNS_PLUGIN)"
+ACME_SERVER_LABEL="$ACME_SERVER"
+if [ -z "$ACME_SERVER_LABEL" ]; then
+  ACME_SERVER_LABEL="Let's Encrypt"
+fi
+[ "$SETUP_LE" = "yes" ] && echo "    Certificate: $LE_DOMAINS (plugin: $CERTBOT_DNS_PLUGIN, ACME server: $ACME_SERVER_LABEL)"
 echo
 ask_yesno CONFIRM_PROCEED "Proceed with these settings?" "yes"
 if [ "$CONFIRM_PROCEED" != "yes" ]; then
@@ -408,14 +417,20 @@ if [ "$SETUP_LE" = "yes" ] && [ -n "$LE_DOMAINS" ]; then
   echo "    container now (see deploy/${CERTBOT_DNS_PLUGIN}-credentials.ini.example),"
   echo "    e.g.: pct push $CTID <local-file> /etc/letsencrypt/${CERTBOT_DNS_PLUGIN}-credentials.ini"
   echo "          pct exec $CTID -- chmod 600 /etc/letsencrypt/${CERTBOT_DNS_PLUGIN}-credentials.ini"
+  CERTBOT_ENV=("CERTBOT_DNS_PLUGIN=${CERTBOT_DNS_PLUGIN}")
+  LATER_CMD="pct exec $CTID -- bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
+  if [ -n "$ACME_SERVER" ]; then
+    CERTBOT_ENV+=("ACME_SERVER=${ACME_SERVER}")
+    LATER_CMD="pct exec $CTID -- env \"ACME_SERVER=${ACME_SERVER}\" bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
+  fi
   ask_yesno RUN_LE_NOW "Credentials file in place - issue the certificate now?" "no"
   if [ "$RUN_LE_NOW" = "yes" ]; then
     # shellcheck disable=SC2086 # LE_DOMAINS is deliberately word-split into separate -d arguments
-    pct exec "$CTID" -- env "CERTBOT_DNS_PLUGIN=${CERTBOT_DNS_PLUGIN}" \
+    pct exec "$CTID" -- env "${CERTBOT_ENV[@]}" \
       bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS
     msg_ok "Certificate issued"
   else
-    echo "    Run later with: pct exec $CTID -- bash /opt/pve-flr-portal/deploy/certbot-setup.sh $LE_DOMAINS"
+    echo "    Run later with: $LATER_CMD"
   fi
 fi
 
