@@ -88,8 +88,9 @@ The app serves HTTPS by default on port **8008** (a self-signed cert is
 generated automatically on first run at `certs/portal.crt`/`portal.key`
 if you haven't dropped in your own). Open **https://127.0.0.1:8008/** —
 your browser will warn about the self-signed cert the first time; that's
-expected for a homelab self-signed setup. Drop a CA-issued cert/key at
-the same paths to replace it.
+expected until you replace it. Drop a CA-issued cert/key at the same
+paths to do so — see "Deployment" below for an automated Let's Encrypt
+option.
 
 See "Provisioning access" below for how to grant a user the
 `FileRestoreReader` role needed to browse and download (restore-to-guest

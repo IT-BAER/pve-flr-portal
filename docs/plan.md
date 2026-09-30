@@ -782,7 +782,7 @@ admin hasn't supplied their own.
   note above).
 - 2FA: not investigated, not handled — flagged as a known gap above.
 - Session store: in-memory, as expected — a backend restart logs
-  everyone out. Accepted tradeoff for a single-process homelab tool.
+  everyone out. Accepted tradeoff for a single-process internal tool.
 - Logout UX: a person-icon menu at the far right of the top banner
   (matching the ABB reference the user provided), with an About entry
   (app logo/name/credit) alongside it. Session cookie is `HttpOnly`,
@@ -1045,7 +1045,7 @@ aren't guest-agent commands and don't share the channel:
   today's single-write restore, but will matter once a multi-chunk
   restore (§ Design B above) is sending many sequential commands back
   to back — left off by default since there's no evidence yet of what
-  a typical homelab actually needs; tune it up if a restore is ever
+  a typical deployment actually needs; tune it up if a restore is ever
   observed crowding out other guest-agent users.
 
 Response shape:
@@ -1077,7 +1077,7 @@ and returns its id immediately; the actual work runs as a tracked
 asyncio background task. New `backend/restore_jobs.py`, same
 single-process/in-memory tradeoff already accepted for
 `auth._sessions` (CLAUDE.md's "no extra services" — lost on a backend
-restart, acceptable for a homelab tool):
+restart, acceptable for a single-admin internal tool):
 
 - `RestoreJob`: id, a **snapshot** of the requesting session (see
   below), guest type/vmid/name, task name (auto-generated, e.g.
@@ -1093,7 +1093,7 @@ restart, acceptable for a homelab tool):
   boundary and marks `cancelled`, cleaning up any scratch dir already
   written).
 - Jobs are visible to any logged-in user, not scoped per-requester —
-  matches this being a single-admin homelab tool with one shared task
+  matches this being a single-admin internal tool with one shared task
   list (Synology ABB's own restore-task list works the same way), and
   keeps the UI simple. Revisit if this ever becomes genuinely
   multi-admin.
@@ -1829,8 +1829,9 @@ present:
 **Network segmentation.** Design C is the first (and so far only)
 feature where the guest genuinely needs a network path to this app —
 everything else is QMP-mediated with no such requirement. Given a
-homelab with several *mutually non-routable* subnets, "add one NIC" isn't
-enough — the design is **one data-plane NIC per non-routable subnet**:
+network with several *mutually non-routable* subnets, "add one NIC"
+isn't enough — the design is **one data-plane NIC per non-routable
+subnet**:
 
 - The existing interface keeps serving the UI (user-facing) and the
   outbound PVE API calls (management-plane) — unchanged.
@@ -1887,7 +1888,7 @@ QGA auto-match picked correctly; concrete firewall rule examples
 (Proxmox's own firewall, and iptables/nftables as a generic Docker-path
 fallback) restricting each data NIC to inbound-only-to-the-download-
 route; and a worked example with 2–3 subnets, matching the actual
-homelab shape this is built for.
+network shape this is built for.
 
 **Simpler alternative worth documenting alongside this, not competing
 with it: guests with a full desktop, when they can reach the management
@@ -2212,7 +2213,7 @@ and `verify` clients reject it until you do).
 
 **Guest trust-store management.** `RESTORE_DATA_NIC_TLS_INSTALL_CA` =
 `never` (default is `never`, but the shipped `PREFERRED` default is
-`verify`, so a homelab that wants zero pre-provisioning sets this to
+`verify`, so a deployment that wants zero pre-provisioning sets this to
 `if-missing`) / `if-missing` (skip when it's already there — a
 `certutil -store Root <thumbprint>` check on Windows, an anchor-file
 `test -f` on Linux) / `always`. Install = `agent/file-write` the CA PEM
@@ -2718,7 +2719,7 @@ record):**
   zoom."
 
 This is a tool one person maintains occasionally alongside an already
-full plate of homelab admin — optimize for low ongoing maintenance over
+full plate of other work — optimize for low ongoing maintenance over
 architectural purity.
 
 ## 9. Risks & unknowns
@@ -2895,7 +2896,7 @@ recorded here so the ceiling is known before anyone leans on it.
   cache (same underlying limit as above), so this cost is paid on every
   root view, not just the first. Adds up to one more cold-lookup round
   trip to every VM guest's root browse, worst case. Accepted as a
-  reasonable cost for the convenience on a single-admin homelab tool;
+  reasonable cost for the convenience on a single-admin internal tool;
   would be the first thing to revisit if PH.6's cache ever lands.
 
 - **In-memory sessions + `reload=True`, one worker** (`run.py`): can't
@@ -2905,7 +2906,8 @@ recorded here so the ceiling is known before anyone leans on it.
   stay single-worker or move sessions to the SQLite file if PH.6 lands.*
 - **`httpx.AsyncClient` per call.** Every `pve_client` function opens a
   fresh client — new TLS handshake, no connection pooling. Wasteful
-  under load, negligible at homelab volume. *Fix: one shared client.*
+  under load, negligible at the scale this app runs at. *Fix: one
+  shared client.*
 - **`index()` is O(all archives on the datastore)** per page load:
   `list_backup_archives` pulls every backup, then `index()` parses and
   groups the whole list each time. Thousands of entries on a busy
@@ -2917,7 +2919,7 @@ recorded here so the ceiling is known before anyone leans on it.
 
 **Fine as-is:** streaming single-file download, the auth/session path,
 the live snapshot-list call (one PVE request, no helper VM), the
-timeline at realistic homelab retention.
+timeline at a realistic backup-retention count.
 
 ## 10. Deployment
 
@@ -2935,8 +2937,8 @@ options given the hard PVE dependency. Considered:
   "runs on any hypervisor" isn't a real benefit here since the target
   audience is, by definition, already running Proxmox.
 - **LXC container (chosen, primary path).** PVE-native, minimal
-  overhead, matches how the Proxmox homelab community already ships
-  companion tools (the common `pct create` + install-script pattern,
+  overhead, matches how the Proxmox community already ships companion
+  tools (the common `pct create` + install-script pattern,
   e.g. community-scripts/tteck-style helpers). Fully isolated from the
   PVE host's own OS/package management. See `deploy/lxc-create.sh`
   (creates an unprivileged Debian 12 container, installs the app,
@@ -3007,7 +3009,7 @@ Notes:
   catch mid-write is a half-written preferences/cache file once those
   features exist; both are designed to be safe to discard and rebuild.
 - The backup will contain `certs/` — including the TLS **private key**.
-  For the default self-signed homelab cert this is low-stakes, but if
+  For the default self-signed cert this is low-stakes, but if
   you install a real CA-issued key, treat that backup (and the PBS
   datastore holding it) accordingly.
 - Pointing this portal at the **same** PBS/PVE that backs up its own

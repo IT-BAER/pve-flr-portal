@@ -70,7 +70,7 @@ scope (`docs/plan.md` §2).
   backup listing goes through PVE's own API). A logged-in user's PVE
   ticket/CSRF token lives server-side in the session store and is never
   sent to the browser.
-- Prefer the simplest thing that works for a single-admin homelab tool:
+- Prefer the simplest thing that works for a single-admin internal tool:
   no build pipeline, no SPA framework, no extra services beyond the one
   backend process. Durable state, when a feature genuinely needs it,
   goes in `PFR_DATA_DIR` (issue #30) as a single small file written from

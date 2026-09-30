@@ -8,7 +8,7 @@ refresh server-side, transparently - the browser only ever holds our
 own opaque session cookie, never the real PVE ticket.
 
 Session store is a plain in-memory dict: this is a single-process
-homelab tool (CLAUDE.md - no extra services), so a backend restart
+internal tool (CLAUDE.md - no extra services), so a backend restart
 logging everyone out is an acceptable tradeoff.
 """
 import asyncio

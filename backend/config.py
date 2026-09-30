@@ -29,7 +29,8 @@ _FALSY = ("0", "false", "no", "off", "")
 def _pve_verify() -> "bool | ssl.SSLContext | str":
     """PVE_VERIFY_SSL for the portal -> Proxmox API connection:
       false            -> don't verify Proxmox's cert (Proxmox default
-                          is self-signed; the common homelab setting);
+                          is self-signed; the common setting for an
+                          internal deployment);
       true (default)   -> verify against the *system* trust store
                           (Debian /etc/ssl/certs - so a CA you added
                           with `update-ca-certificates` is honoured -
@@ -149,7 +150,7 @@ class Settings:
     # call still needs a turn, especially once a multi-chunk restore is
     # sending many sequential guest-agent commands back to back.
     # Defaults to 0 (disabled) since the right value is workload-
-    # dependent and there's no evidence yet of what a typical homelab
+    # dependent and there's no evidence yet of what a typical deployment
     # needs - tune up via GUEST_AGENT_MIN_COMMAND_GAP_SECONDS if a
     # restore is observed crowding out other guest-agent users.
     guest_agent_min_command_gap_seconds: float

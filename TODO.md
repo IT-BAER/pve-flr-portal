@@ -158,12 +158,13 @@ wasn't built for.
   systemd unit should own restart-on-crash, not uvicorn's reloader).
   Fix: gate `reload` behind an env var, default off.
 - [ ] **One `httpx.AsyncClient` per PVE call, no connection pooling** —
-  wasteful (fresh TLS handshake each time) but negligible at homelab
-  volume. Fix: one shared client instance.
+  wasteful (fresh TLS handshake each time) but negligible at the scale
+  this app runs at. Fix: one shared client instance.
 - [ ] **`index()` reprocesses every archive on the datastore on every
   page load** — `list_backup_archives()` pulls the full list, then
   `index()` parses/groups all of it, uncached, per request. Fine at
-  homelab scale; would matter on a busy shared datastore.
+  a single-admin deployment's scale; would matter on a busy shared
+  datastore.
 - [ ] **`renderTimeline()` tears down and rebuilds every SVG node each
   pan frame**, and `groupsInView()` walks all snapshots per frame —
   smooth at a few hundred dots, drops frames at multi-year retention

@@ -898,8 +898,8 @@ async def restore(
 async def restore_jobs_list(session: SessionData = Depends(auth.get_session_keepalive)):
     """PH.5 (docs/plan.md §7.5): the running-jobs indicator's data source,
     polled from the top bar every few seconds. Jobs are visible to any
-    logged-in user, not scoped per-requester - a single-admin homelab
-    tool with one shared task list, same as the rest of this design.
+    logged-in user, not scoped per-requester - a single-admin tool
+    with one shared task list, same as the rest of this design.
 
     Uses get_session_keepalive: this poll must not keep an idle session
     alive (issue #27) - if it 401s, apiFetch() in app.js redirects."""

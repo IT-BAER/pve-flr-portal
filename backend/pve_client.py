@@ -58,7 +58,7 @@ def _file_restore_base(volume: str) -> str:
     return f"{_API_ROOT}/nodes/localhost/storage/{_storage_of(volume)}/file-restore"
 
 # Conservative denylist, not a full shell-safety abstraction - acceptable
-# for a single-admin homelab tool where a path reaching this check is
+# for a single-admin tool where a path reaching this check is
 # either empty, a value guest_browse.py itself returned on a prior
 # browse call, or a user-typed destination directory that this same
 # check gates before it ever reaches a shell-interpreted guest-exec
