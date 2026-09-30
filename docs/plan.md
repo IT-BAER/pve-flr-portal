@@ -555,7 +555,7 @@ inline on any request once it's more than 90 minutes old. Same effect
 as a timer (tickets never hit their ~2h expiry for an active user),
 simpler code — no timer bookkeeping to leak or clean up.
 
-PVE 2FA/TOTP is **not** handled — see `TODO.md`.
+PVE 2FA/TOTP (TOTP and recovery keys) is handled — issue #15, see below.
 
 ### 7.1 PVE-only auth, no separate PBS token
 
@@ -610,10 +610,78 @@ comes back in the same shape PBS's admin API gives, since the UI's
 - `pve_client.py`'s functions need a `session` argument instead of
   reading the module-level static token; `_headers()` becomes
   `_headers(session)`.
-- 2FA/TOTP: if any target user has a second factor enabled on their PVE
-  account, `/access/ticket` requires an extra round-trip. Confirm
-  whether that applies here before committing to a single-step login
-  form.
+- **2FA/TOTP — shipped (issue #15).** A second factor on the account
+  does require an extra round-trip, confirmed against PVE's own source
+  (`pve-access-control`'s `PVE/API2/AccessControl.pm`, `create_ticket`)
+  rather than guessed: the first `/access/ticket` response carries
+  `NeedTFA: 1` plus an opaque, signed intermediate value in `ticket` -
+  not a real session ticket yet, but not something the client needs to
+  interpret either, just echo back. The second POST sends `username`,
+  the entered code in `password` (never `otp` - PVE's own code
+  explicitly rejects mixing the two when `tfa-challenge` is set), and
+  that intermediate value in `tfa-challenge`. The original password
+  isn't needed again: the intermediate value is itself PVE's normal
+  ticket-signing applied to a `!tfa!`-prefixed payload, so it already
+  encodes that the first factor checked out.
+
+  `auth.py`: `login()` raises `TFARequired(challenge, username)` instead
+  of returning when `NeedTFA` is set; `finish_tfa_login(username, code,
+  challenge)` does the second call. `login.html` reveals a code-entry
+  step in place (same POST route, `tfa_challenge` present or not is
+  what distinguishes the two steps) with username/realm/challenge
+  carried as hidden fields - no server-side "pending login" state
+  needed, matching this project's stateless-login design.
+
+  Covers TOTP and recovery keys - PVE's second call doesn't distinguish
+  which the entered string represents, so the same plain-text code
+  field accepts either. WebAuthn is explicitly out of scope: it needs
+  real browser credential-API JavaScript (`navigator.credentials.get()`
+  against a challenge), not just a text field posted through the same
+  two-step ticket exchange.
+
+  **Real bug, caught live against an actual 2FA account (2026-09-30):**
+  the second call kept failing with a correct code. Cause: the
+  code-entry form's hidden `username` field was echoing back the raw,
+  client-typed username (e.g. `alice`) reconstructed with the realm
+  (`alice@pam`), instead of the exact string PVE itself returned as
+  `data["username"]` in the first response. That distinction matters
+  because PVE's challenge ticket is cryptographically bound to it: the
+  intermediate ticket is `assemble_ticket($ticket_data, $aad)` with
+  `$aad = $username` - the *normalized* username, after PVE's own
+  `lookup_username` - not whatever a client-side `f"{username}@{realm}"`
+  string happens to produce. Any mismatch fails the second call's
+  verification outright, independent of whether the code itself is
+  right. Fixed by carrying `TFARequired.username` (PVE's own returned
+  value) through the hidden field verbatim instead of reconstructing
+  it - `login_submit` no longer touches the username at all on the
+  second step. A real-world illustration of why "obviously equivalent"
+  strings (`alice@pam` built two different ways) aren't safe to
+  interchange across a cryptographic boundary designed around one
+  specific, authoritative source of that string.
+
+  **UX addition, same live test:** the code-entry step needed a way
+  back to the username/password form without a page reload - a plain
+  `<a href="/login">` link, not a form action, so it abandons the
+  in-progress challenge rather than trying to resubmit it.
+
+  **Second real bug, same live test, after the username fix above still
+  didn't get a correct code accepted:** the `password` value on the
+  second call needs a **type prefix** - `totp:123456` or
+  `recovery:<key>` - not a bare code. Confirmed against PVE's real web
+  UI client (`proxmox-widget-toolkit`'s `TfaWindow.js`:
+  `finishChallenge('totp:' + code)` / `finishChallenge('recovery:' +
+  key)`), not documented anywhere in the API2 schema itself - the Perl
+  endpoint's own parameter description for `password` ("The secret
+  password. This can also be a valid ticket.") gives no hint that a TFA
+  response additionally needs this prefix. Without it, PVE silently
+  rejects the response regardless of whether the code is actually
+  correct - confirmed live against a real account that could log into
+  the Proxmox web UI with the same OTP. Fixed by prefixing based on
+  shape: a recovery key is always four hyphenated groups of 4 hex
+  digits (`^[0-9a-f]{4}(-[0-9a-f]{4}){3}$`, per that same widget's own
+  input validation) and never looks like a bare 6-8-digit number, so
+  which prefix to use is unambiguous without a second input field the
+  way PVE's own multi-tab widget has.
 
 **What this simplifies vs. today:** no more `pbs_client.py`, no more
 `PBS_HOST`/`PBS_DATASTORE`/`PBS_TOKEN_*`/`PBS_VERIFY_SSL` in `.env` —
