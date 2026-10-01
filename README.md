@@ -15,35 +15,57 @@ top of Proxmox's existing API, without modifying Proxmox itself.
 See [`docs/plan.md`](docs/plan.md) for the full architecture/reference
 doc, [`TODO.md`](TODO.md) for open work, and
 [`CHANGELOG.md`](CHANGELOG.md) for what's shipped in each release.
+Also check [GitHub issues](https://github.com/treycentric/pve-flr-portal/issues) for outstanding work items.
 
-**Status: v1.2.0.** Browse and download files out of PBS backups
-(single file, or a `.zip`/`.tar.gz`/`.tar.zst` bundle), scrub across
-snapshots on a timeline, per-user PVE login, colour themes, and
-**restore straight back into a running guest** via `qemu-guest-agent`
-(single file, whole directories, and a faster Direct Network Transfer
-path for large content). Reads from one or more PBS storages. See
-`CHANGELOG.md` for the per-release detail and `TODO.md` for what's left
-(mostly optional performance work and restore-path refinements).
+## Features
+- Browse and download files and folders out of PBS backups (single file,
+  or a `.zip`/`.tar.gz`/`.tar.zst` bundle)
+- Scrub across a timeline to pick a snapshot to work with. This allows
+  for quick comparisons of folder contents between two different
+  snapshots.
+- Authenticated using PVE login (password or SSO/OIDC). This app does not
+  manage its own credentials. All authentication and authorization is
+  controlled through PVE. See "Provisioning access" below for how to grant
+  a user access.
+- Light, dark, and Proxmox Dark color themes.
+- Restore straight back into a running guest via `qemu-guest-agent`
+  including single file, multiple files, and whole directories to the
+  original location (auto-resolved from the item's own path) or to a
+  location of the user's choosing (browse live guest drives and
+  directories or manually type a path). Restoration supports a few
+  different methods (support detected automatically):
+  - Chunk method using qemu-guest-agent (slower). Useful for smaller
+    content.
+  - HTTP/HTTPS Direct Network Transfer path (faster). Preferable for
+    larger content or lots of files/directories.
+- Automatically resolves Windows drive-letter mapping to partitions for
+  display in the UI, matched to the guest's real disk/partition layout.
+- Supports the use of multiple PBS storage backends.
+- Hides partitions automatically that aren't readable or don't contain
+  supported filesystems. This also includes Windows striped/mirrored volumes.
 
-Auth is per-user PVE ticket login — there's no shared service token.
-See "Provisioning access" below for how to grant a user access.
+See `CHANGELOG.md` for the version-by-version detail and `TODO.md` for
+what's on the roadmap.
 
-## Using it
+## Using the File Restore Portal
 
 1. **Log in** with your own PVE username/password (realm dropdown,
    optional "save username").
-2. **Task** (top right) picks which guest you're browsing — a
+2. **Task** (top right) picks which guest VM or container you're browsing — a
    filterable list of every guest with backups on the configured PBS
-   datastore.
-3. **The timeline** (bottom) is the point of the app: each dot is a
-   snapshot; click one to select it (the callout jumps to it), drag to
-   pan, use the zoom controls or a day with multiple snapshots to pick
-   between them. The center line marks whatever snapshot is currently
-   selected.
+   datastores. You will only see the ones for which you have been granted the
+   required roles via PVE.
+3. **The timeline** (bottom) is one of the main benefits of the app: each
+   dot is a snapshot; click one to select it (the callout jumps to it), drag
+   to pan, use the zoom controls or click a callout with multiple snapshots
+   to pick between them.
 4. **Browse** the selected snapshot via the folder tree on the left or
    the breadcrumb bar above the file grid — both stay in sync with each
    other and with the timeline (switching snapshots keeps you in the
-   same folder if it still exists there).
+   same folder if it still exists there). Partitions, LVM volumes, and
+   filesystem roots get their own icon, distinct from a plain folder;
+   a Windows partition shows its live drive letter (e.g. "2 (C:)") when the
+   guest agent can resolve it.
 5. **Download** — select one file for a direct download, or select
    multiple files/folders (or a single folder) to get a "Download as"
    dropdown offering `.zip`, `.tar.gz`, or `.tar.zst`.
@@ -51,22 +73,28 @@ See "Provisioning access" below for how to grant a user access.
    guest via `qemu-guest-agent`, instead of downloading it. The button
    is only enabled for guests where the agent is reachable and your PVE
    account holds the separate restore grant (see "Restore-to-guest"
-   below); the confirmation dialog picks the destination directory -
-   "Original location" (resolved automatically from the item's own path
-   in the backup, when the app can confidently determine it), Browse, or
-   type one manually - and, where available, offers "restore metadata"
-   (modified time) and "verify" (checksum) for a single file - a
-   multi-file/directory restore already does both of those
-   automatically, not optional there. "Restore original owner/
-   permissions" is offered either way (Linux/BSD guests only - greyed
-   out for Windows, since NTFS ACLs can't be recovered through any
-   file-restore API Proxmox currently exposes; see "Restore-to-guest"
-   below). Large transfers use a Direct Network Transfer path
-   automatically when a data NIC is configured.
-7. **About** (user menu, top right) shows the running version and a
+   below); the confirmation modal dialog provides three options for
+   picking the destination directory:
+   - **Original location** (resolved automatically from the item's own path
+   in the backup, when the app can confidently determine it)
+   - **Browse**
+   - Manually typed path
+   Offers selectable options for "restore metadata" (modified time) and
+   "verify" (checksum) when restoring a single file. Multi-file/directory
+   restore already does both of those automatically (required).
+   "Restore original owner/permissions" is offered either way (for Linux/BSD
+   guests only - greyed out for Windows, since NTFS ACLs can't be recovered
+   through any file-restore API Proxmox currently exposes; see
+   "Restore-to-guest" below). Large transfers use a Direct Network Transfer
+   path automatically when a data NIC is configured for the application.
+7. **Restore Jobs** (top right) allows for viewing the progress of running
+   or completed restore jobs.
+8. **Color Theme** Change the currently selected color theme used by the app
+   (stored in user's browser state).
+9. **About** (user menu, top right) shows the running version and a
    link back to this repo.
 
-## Running it
+## Running It Locally
 
 ```
 git clone https://github.com/treycentric/pve-flr-portal.git
@@ -89,19 +117,22 @@ generated automatically on first run at `certs/portal.crt`/`portal.key`
 if you haven't dropped in your own). Open **https://127.0.0.1:8008/** —
 your browser will warn about the self-signed cert the first time; that's
 expected until you replace it. Drop a CA-issued cert/key at the same
-paths to do so — see "Deployment" below for an automated Let's Encrypt
-option.
+paths to do so.
 
 See "Provisioning access" below for how to grant a user the
 `FileRestoreReader` role needed to browse and download (restore-to-guest
 needs a separate grant, also covered there).
 
-## Provisioning access
+## Provisioning Access
 
 The portal never gets its own PVE credentials — every user logs in
 with their own PVE username/password, and PVE's own permission system
 decides what they can see. Onboarding a user is two ACL grants against
 their existing account; no tokens or secrets to generate or hand off.
+
+### Browse Backup Snapshots and Download Contents
+
+Browsing and downloading only needs `FileRestoreReader` (created here).
 
 **1. Create the role** (once, on the PVE node — skip if it already
 exists):
@@ -112,9 +143,9 @@ pveum role add FileRestoreReader -privs "Datastore.AllocateSpace,VM.Backup,VM.Au
 
 `Datastore.AllocateSpace` + `VM.Backup` are what PVE's file-restore API
 actually requires to read a backup volume (`Datastore.Audit` alone is
-not enough); `VM.Audit` lets the portal resolve guest names for
-display. See `docs/plan.md` §3 if you want the full "why" behind that
-specific privilege set.
+not enough); `VM.Audit` lets the portal resolve guest names for display.
+See `docs/plan.md` §3 if you want the full "why" behind that specific
+privilege set.
 
 **2. Grant it to each user:**
 
@@ -144,9 +175,8 @@ a storage a user has no access to is simply skipped, not an error.
 4. **Add → User Permission** (again) — Path: `/vms` (or a specific
    `/vms/<vmid>`), same User/Role, Propagate: checked.
 
-### Restore-to-guest
+### Restore to Guest
 
-Browsing and downloading only needs `FileRestoreReader` above.
 Restoring a file directly back into a *running* guest via
 `qemu-guest-agent` (see `docs/plan.md` §7.5–§7.7) is a **separate,
 deliberate** grant — a user who can browse a backup should not
@@ -158,9 +188,11 @@ PVE 8 only has the coarse, all-or-nothing `VM.Monitor` and can't scope
 this feature tightly, so it stays unavailable on PVE 8 regardless of
 any role/ACL setup.
 
+**1. Create the role** (once, on the PVE node — skip if it already
+exists):
+
 ```
 pveum role add FileRestoreOperator -privs "VM.GuestAgent.Audit,VM.GuestAgent.FileWrite"
-pveum acl modify /vms/<vmid> --users <user>@<realm> --roles FileRestoreOperator
 ```
 
 - `VM.GuestAgent.Audit` lets the portal ask the guest agent what it
@@ -178,6 +210,26 @@ pveum acl modify /vms/<vmid> --users <user>@<realm> --roles FileRestoreOperator
   ```
   pveum role modify FileRestoreOperator -privs "VM.GuestAgent.Audit,VM.GuestAgent.FileWrite,VM.GuestAgent.Unrestricted"
   ```
+
+**2. Grant it to each user:**
+
+At global (root) scope:
+
+```
+pveum acl modify / --users <user>@<realm> --roles FileRestoreOperator
+```
+
+For all VMs:
+
+```
+pveum acl modify /vms --users <user>@<realm> --roles FileRestoreOperator
+```
+
+For a specific VM:
+
+```
+pveum acl modify /vms/<vmid> --users <user>@<realm> --roles FileRestoreOperator
+```
 
 The portal detects per-guest which of these the calling user actually
 holds (plus what the guest agent itself allows) and only offers the
@@ -209,7 +261,7 @@ asking for a password.
 
 **One extra step beyond the PVE-side realm setup**, and the one that's
 easy to miss: the portal redirects through your identity provider using
-its *own* callback URL —
+its *own* callback/redirect URL —
 
 ```
 https://<portal-host>:<port>/login/oidc/callback
@@ -237,7 +289,11 @@ needed on the portal's own side).
 
 ## Deployment
 
-**LXC on your PVE host (recommended).** Run on the PVE host itself:
+### LXC on your PVE host (Recommended)
+
+**Installation**:
+
+Run on the PVE host itself:
 
 ```
 bash deploy/lxc-create.sh
@@ -251,7 +307,9 @@ container? Run `deploy/install.sh` inside it instead. Rationale for LXC
 over a Debian package on the host or a full VM/OVA is in docs/plan.md
 §10.
 
-**Updating.** Run `bash deploy/update.sh` inside the container/host to
+**Updating**:
+
+Run `bash deploy/update.sh` inside the container/host to
 update to the latest release, `bash deploy/update.sh v1.4.0` (or
 `1.4.0`) to pin to a specific one, or `bash deploy/update.sh main` for
 unreleased/bleeding-edge work. Reinstalls dependencies if
@@ -266,16 +324,19 @@ service user. It survives `update.sh` redeploys and container reboots,
 but not a container recreate - see docs/plan.md §10 for what to
 preserve when moving/rebuilding the container.
 
-**Container image.** Each release is published to GitHub Container
-Registry as `ghcr.io/treycentric/pve-flr-portal:<version>` (also
+### Docker Image for Deployment
+
+Each release is published to GitHub Container Registry as
+`ghcr.io/treycentric/pve-flr-portal:<version>` (also
 `<major>.<minor>` and `latest`), for amd64 and arm64, by
-`.github/workflows/image.yml` once the test suite passes. It runs as an
-unprivileged user (uid 10001) with auto-reload off, and has a
-healthcheck. Configure it with the same variables as `.env.example`,
-passed as environment variables. Everything else in the image can be
-read-only: the app writes only `/app/certs` (its self-signed cert,
-unless you mount your own there), `/app/data`, and the temp directory
-while it builds a download bundle.
+`.github/workflows/image.yml` once the test suite passes. It
+runs as an unprivileged user (uid 10001) with auto-reload off,
+and has a healthcheck. Configure it with the same variables as
+`.env.example`, passed as environment variables. Everything else
+in the image can be read-only: the app writes only `/app/certs`
+(its self-signed cert, unless you mount your own there),
+`/app/data`, and the temp directory while it builds a download
+bundle.
 
 ```
 docker run -d -p 8008:8008 \
@@ -297,7 +358,7 @@ cosign verify \
   ghcr.io/treycentric/pve-flr-portal:latest
 ```
 
-**Docker, building from source for local dev/testing:**
+### Docker for Local Development/Testing
 
 ```
 docker compose up --build
@@ -319,7 +380,7 @@ gives the container the host's real interfaces directly (on Windows/Mac
 this needs Docker Desktop's "Enable host networking" setting on first):
 `docker compose --profile hostnet up --build pve-flr-portal-hostnet`.
 
-**Data-plane TLS (issue #47, docs/plan.md §7.6.1).** Once
+**Data-plane TLS (docs/plan.md §7.6.1).** Once
 `RESTORE_DATA_NICS` is set, the download route is served over **HTTPS**,
 and `RESTORE_DATA_NIC_TLS_PREFERRED` defaults to **`verify`** (the guest
 validates the cert). A self-signed data-plane cert with the right IP
@@ -370,5 +431,4 @@ Licensed under the [GNU Affero General Public License v3.0](LICENSE)
 who runs a modified version of this app as a network service must also
 make that modified source available to its users.
 
-Third-party attribution (the app icon is derived from a WordPress
-Dashicons glyph via SVG Repo) is in [`NOTICE`](NOTICE).
+Third-party attribution is in [`NOTICE`](NOTICE).

@@ -21,15 +21,23 @@ drift from reality. Three companion docs, kept separate on purpose:
   don't edit it; append new lessons to `docs/plan.md` instead.
 
 ## Current status
-**v1.2.0.** Browsing/downloading files out of PBS backups via PVE's
-file-restore API, a scrubbable multi-guest timeline, per-user PVE
-ticket login (no shared service token, no direct PBS access), HTTPS by
-default, LXC/Docker deployment, colour themes (#29), multiple PBS
-storages/namespaces (#43), and **push-to-guest restore** — shipped in
-v1.1.0: single-file, Direct Network Transfer, and multi-file/directory
-bundles via `qemu-guest-agent` (PH.5, issues #5/#22/#24). See
-`CHANGELOG.md` for release-by-release detail and `TODO.md` for what's
-left — every planned phase has shipped, including PH.6 (a
+**Actively developed — deliberately no version number pinned here,
+since it goes stale the moment the next release ships; see
+`CHANGELOG.md` for the exact version history.** Browsing/downloading
+files out of PBS backups via PVE's file-restore API, a scrubbable
+multi-guest timeline, per-user PVE login (password or SSO/OIDC realm,
+#56), HTTPS by default, LXC/Docker deployment, colour themes (#29),
+multiple PBS storages/namespaces (#43), and **push-to-guest restore**
+via `qemu-guest-agent` (PH.5, issues #5/#22/#24) — single-file, Direct
+Network Transfer (HTTPS by default, #47), multi-file/directory
+bundles, and "restore to original location" (#68) resolved from the
+item's own path, including Windows drive-letter display matched to
+the guest's real disk/partition layout via bus-address matching, not
+just attachment-order guessing (#77). A partition, disk, or LVM volume
+PVE's file-restore helper can't mount is hidden automatically instead
+of surfaced as a dead end (#80), each with its own tree icon (#83).
+See `CHANGELOG.md` for release-by-release detail and `TODO.md` for
+what's left — every planned phase has shipped, including PH.6 (a
 directory-listing cache, issue #109); everything open in `TODO.md` is
 follow-on refinement.
 
@@ -94,8 +102,17 @@ scope (`docs/plan.md` §2).
 - `docs/archive/` — frozen historical docs; don't edit
 - `TODO.md`, `CHANGELOG.md`, `VERSION` — open work, release history,
   current version (single source of truth, read by `backend/version.py`)
-- `backend/` — FastAPI app (`main.py`, `auth.py`, `pve_client.py`,
-  `tls.py`, `version.py`, `templates/`, `static/`)
+- `backend/` — FastAPI app: `main.py` (routes), `auth.py` (PVE ticket
+  session store), `pve_client.py` (PVE API calls, `list_path`
+  throttling/coalescing), `config.py` (env/settings), `tls.py`
+  (self-signed cert bootstrap), `version.py`; push-to-guest restore
+  (PH.5): `guest_agent.py` (capability detection), `guest_agent_lock.py`
+  (per-vmid guest-exec serialization), `guest_browse.py` (restore
+  destination browsing), `guest_original_location.py`
+  ("original location" resolution, #68/#77), `guest_ca.py` (data-plane
+  CA install), `restore_runner.py`/`restore_jobs.py`/`restore_bundle.py`/
+  `restore_chunking.py`/`restore_network_pull.py`/`restore_download.py`;
+  `templates/`, `static/`
 - `scripts/release.py` — changelog/version-bump/GitHub-release automation
 - `deploy/` — LXC install scripts + systemd unit; `Dockerfile` /
   `docker-compose.yml` at the repo root
