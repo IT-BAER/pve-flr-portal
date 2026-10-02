@@ -250,6 +250,10 @@ class Settings:
     # meaningful to expose here.
     job_admin_privilege: str
 
+    # How many days a terminal restore job's persisted history row is
+    # kept before an opportunistic sweep deletes it.
+    job_history_retention_days: int
+
     # Issue #60: caps how many `file-restore/list` calls this app has
     # in flight to PVE at once. Each cold call boots an ephemeral helper
     # VM on the PVE node (~3s, docs/plan.md §3) - Proxmox exposes no API
@@ -342,6 +346,7 @@ settings = Settings(
     default_theme=_theme("DEFAULT_THEME", "auto"),
     restrict_jobs_to_own=_bool("RESTRICT_JOBS_TO_OWN", False),
     job_admin_privilege=_get("JOB_ADMIN_PRIVILEGE", "Sys.Audit"),
+    job_history_retention_days=_int("JOB_HISTORY_RETENTION_DAYS", 7),
     data_dir=_path("PFR_DATA_DIR", "data"),
 )
 

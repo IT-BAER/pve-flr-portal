@@ -8,7 +8,15 @@ Same tradeoff already accepted for auth._sessions (CLAUDE.md - no extra
 services): single-process, in-memory, lost on a backend restart. Jobs
 are visible to any logged-in user rather than scoped per-requester -
 this is a single-admin tool with one shared task list, the same
-way Synology ABB's own restore-task list works.
+way Synology ABB's own restore-task list works. Visibility/cancel-
+permission are configurable on top of this default - see
+auth.is_job_admin() and config.settings.restrict_jobs_to_own.
+
+Every status transition also writes through to `job_history.py`'s
+SQLite-backed record, which survives a restart and is what lets a job
+interrupted by a crash/redeploy show up as `RestoreStatus.INTERRUPTED`
+instead of vanishing. `main.py`'s job-list/detail endpoints merge this
+manager's live jobs with job_history's persisted ones.
 
 **Session handling.** A job holds its own SessionData *snapshot*
 (`dataclasses.replace(session)` at submission time), never the same
@@ -29,6 +37,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
+from . import job_history
 from .auth import SessionData
 from .restore_bundle import BundleItem
 
@@ -40,6 +49,9 @@ class RestoreStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # Terminal, like done/failed/cancelled - a job still active when the
+    # backend restarts is reconciled to this status, not FAILED.
+    INTERRUPTED = "interrupted"
 
 
 ACTIVE_STATUSES = (RestoreStatus.QUEUED, RestoreStatus.RUNNING, RestoreStatus.VERIFYING)
@@ -132,7 +144,9 @@ class RestoreJob:
 
     def log(self, message: str) -> None:
         elapsed = round(time.time() - self.started_at, 1)
-        self.log_lines.append(f"+{elapsed}s {message}")
+        line = f"+{elapsed}s {message}"
+        self.log_lines.append(line)
+        job_history.append_log_entry(self.id, line)
 
     @property
     def elapsed_seconds(self) -> float:
@@ -227,6 +241,7 @@ class RestoreJobManager:
             source_size=source_size,
         )
         self._jobs[job.id] = job
+        job_history.persist_sync(job)
         return job
 
     def submit(self, job: RestoreJob, coro_factory) -> None:
@@ -251,12 +266,25 @@ class RestoreJobManager:
             task.cancel()
         return True
 
+    def mark_running(self, job_id: str) -> None:
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job.status = RestoreStatus.RUNNING
+            job_history.persist_sync(job)
+
+    def mark_verifying(self, job_id: str) -> None:
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job.status = RestoreStatus.VERIFYING
+            job_history.persist_sync(job)
+
     def mark_cancelled(self, job_id: str) -> None:
         job = self._jobs.get(job_id)
         if job is not None:
             job.status = RestoreStatus.CANCELLED
             job.finished_at = time.time()
             job.log("Cancelled.")
+            job_history.persist_sync(job)
 
     def mark_done(self, job_id: str) -> None:
         job = self._jobs.get(job_id)
@@ -264,6 +292,7 @@ class RestoreJobManager:
             job.status = RestoreStatus.DONE
             job.finished_at = time.time()
             job.log("Restore completed successfully.")
+            job_history.persist_sync(job)
 
     def mark_failed(self, job_id: str, error: str) -> None:
         job = self._jobs.get(job_id)
@@ -272,6 +301,7 @@ class RestoreJobManager:
             job.error = error
             job.finished_at = time.time()
             job.log(f"Failed: {error}")
+            job_history.persist_sync(job)
 
     def clear(self) -> None:
         """Test/dev helper - mirrors auth._sessions.clear()'s role in tests."""
