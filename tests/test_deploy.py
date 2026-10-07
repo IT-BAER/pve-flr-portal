@@ -26,6 +26,13 @@ def test_scripts_never_hand_the_app_dir_to_the_service_user():
         assert "safe.directory" not in text, name
 
 
+def test_install_restarts_an_already_running_service():
+    # `enable --now` leaves a running unit on the old code after a reinstall
+    text = _read(DEPLOY / "install.sh")
+    assert "enable --now" not in text
+    assert re.search(r'^systemctl restart "\$SERVICE_NAME"$', text, re.M)
+
+
 def test_unit_only_lets_the_service_write_certs():
     unit = _read(DEPLOY / "pve-flr-portal.service.template")
     assert re.findall(r"^ReadWritePaths=(.*)$", unit, re.M) == ["__APP_DIR__/certs"]

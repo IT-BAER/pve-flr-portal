@@ -45,12 +45,14 @@ chown -R "$APP_USER":"$APP_USER" "$APP_DIR/certs"
 echo "==> Installing systemd unit"
 # The unit's StateDirectory=pve-flr-portal makes systemd create + own
 # /var/lib/pve-flr-portal (PFR_DATA_DIR, issue #30) on first start - no
-# mkdir/chown needed here, and `systemctl enable --now` below triggers it.
+# mkdir/chown needed here, and the start below triggers it. restart (not a
+# plain start): a reinstall over a running unit must load the new code.
 sed "s#__APP_DIR__#${APP_DIR}#g; s#__APP_USER__#${APP_USER}#g" \
   "$APP_DIR/deploy/pve-flr-portal.service.template" > "/etc/systemd/system/${SERVICE_NAME}.service"
 
 systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
 
 echo
 echo "==> Installed. Service status:"
