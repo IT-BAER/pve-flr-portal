@@ -11,12 +11,56 @@ test('apiFetch returns the response untouched when status is not 401', async () 
   const body = { ok: true, status: 200, json: async () => ({ hi: true }) };
   globalThis.fetch = async (url, init) => {
     assert.equal(url, '/api/thing');
-    assert.deepEqual(init, { method: 'POST' });
+    assert.equal(init, undefined);
     return body;
   };
   try {
-    const resp = await apiFetch('/api/thing', { method: 'POST' });
+    const resp = await apiFetch('/api/thing');
     assert.equal(resp, body);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+function csrfDocument(token) {
+  return {
+    querySelector: (sel) =>
+      sel === 'meta[name="csrf-token"]' ? { getAttribute: (a) => (a === 'content' ? token : null) } : null,
+    querySelectorAll: () => [],
+  };
+}
+
+test('apiFetch sends the page CSRF token on a POST, keeping the existing headers', async () => {
+  const { apiFetch } = loadApp({ window: { location: {} }, document: csrfDocument('tok123') });
+  const original = globalThis.fetch;
+  let seen;
+  globalThis.fetch = async (url, init) => {
+    seen = init;
+    return { ok: true, status: 200 };
+  };
+  try {
+    await apiFetch('/api/restore', { method: 'POST', body: 'x', headers: { Accept: 'application/json' } });
+    assert.deepEqual(seen, {
+      method: 'POST',
+      body: 'x',
+      headers: { Accept: 'application/json', 'X-CSRF-Token': 'tok123' },
+    });
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('apiFetch does not add the CSRF header to a GET', async () => {
+  const { apiFetch } = loadApp({ window: { location: {} }, document: csrfDocument('tok123') });
+  const original = globalThis.fetch;
+  let seen = 'unset';
+  globalThis.fetch = async (url, init) => {
+    seen = init;
+    return { ok: true, status: 200 };
+  };
+  try {
+    await apiFetch('/api/restore-jobs', { method: 'GET' });
+    assert.deepEqual(seen, { method: 'GET' });
   } finally {
     globalThis.fetch = original;
   }

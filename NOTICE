@@ -35,3 +35,14 @@ Alpine.js 3.14.1  (backend/static/vendor/alpine.min.js)
 
     Source   : https://alpinejs.dev/  (npm: alpinejs@3.14.1)
     License  : MIT, backend/static/vendor/alpine.LICENSE.md
+
+Open Sans  (backend/static/fonts/open-sans-latin-{400,600,700}-normal.woff2)
+
+    Copyright 2020 The Open Sans Project Authors
+    (https://github.com/googlefonts/opensans). Unmodified latin-subset
+    WOFF2 files from the @fontsource/open-sans npm package (5.3.0), served
+    locally instead of from Google Fonts.
+
+    Source   : https://fontsource.org/fonts/open-sans
+    License  : SIL Open Font License 1.1 (OFL-1.1),
+               backend/static/fonts/OFL.txt

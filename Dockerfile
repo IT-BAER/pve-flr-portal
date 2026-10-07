@@ -3,10 +3,9 @@
 # under deploy/ remains the recommended way to run this on a PVE host.
 FROM python:3.11-slim
 
-# PFR_RELOAD=false: the code never changes inside the image, so uvicorn's
-# file-watching reload supervisor (run.py's default for a source checkout)
-# only costs a process. PFR_DATA_DIR is absolute so it doesn't depend on
-# the working directory.
+# PFR_RELOAD=false (also the app default): the code never changes inside
+# the image. PFR_DATA_DIR is absolute so it doesn't depend on the working
+# directory.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PFR_RELOAD=false \
@@ -14,8 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY . .
 

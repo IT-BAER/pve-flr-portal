@@ -268,8 +268,8 @@ async def login_oidc_start(realm: str, request: Request):
     return RedirectResponse(url=auth_url, status_code=302)
 
 
-@app.get("/logout")
-async def logout_route(request: Request):
+@app.post("/logout")
+async def logout_route(request: Request, session: SessionData = Depends(auth.get_session_csrf)):
     session_id = request.cookies.get("session_id")
     if session_id:
         auth.logout(session_id)
@@ -370,6 +370,7 @@ async def index(request: Request, task: str | None = None, session: SessionData 
             "guest_json": _json_for_script({"type": guest_type, "vmid": guest_vmid, "label": guest_label}),
             "groups_json": _json_for_script(groups),
             "current_identity": session.username,
+            "csrf_token": session.portal_csrf,
             "storage_errors": [dataclasses.asdict(e) for e in listing.errors],
             "app_version": __version__,
             "repo_url": REPO_URL,
@@ -842,7 +843,7 @@ async def restore(
     restore_ownership: bool = Form(False),
     source_mtime: int | None = Form(None),
     source_size: int | None = Form(None),
-    session: SessionData = Depends(auth.get_session),
+    session: SessionData = Depends(auth.get_session_csrf),
 ):
     """PH.5 restore (docs/plan.md §7.5): submits a background job and
     returns immediately - the actual write (plus, when needed, multi-
@@ -984,7 +985,7 @@ async def restore_jobs_detail(job_id: str, session: SessionData = Depends(auth.g
 
 
 @app.post("/api/restore-jobs/{job_id}/cancel")
-async def restore_jobs_cancel(job_id: str, session: SessionData = Depends(auth.get_session)):
+async def restore_jobs_cancel(job_id: str, session: SessionData = Depends(auth.get_session_csrf)):
     job = restore_jobs.manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such restore job")

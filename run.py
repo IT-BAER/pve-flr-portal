@@ -12,9 +12,9 @@ and `restore_jobs.manager` are both in-memory and process-local
 (CLAUDE.md - no extra services), so a guest's fetch has to land in the
 same process that minted its token. uvicorn's own `--reload` supervisor
 only wraps the single-server `uvicorn.run()` entrypoint, so the default
-(no data NICs configured) keeps using `uvicorn.run()` with reload on
-unless `PFR_RELOAD=false` (the container image sets that); only the
-opt-in multi-listener path below always gives it up.
+(no data NICs configured) keeps using `uvicorn.run()`, with reload only
+when `PFR_RELOAD=true` (off by default); the opt-in multi-listener path
+below always gives it up.
 
 A data listener is an optional enhancement: if its IP isn't a local
 address (a wrong `local_ip`, or the interface isn't attached yet) it is

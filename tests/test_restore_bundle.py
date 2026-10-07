@@ -584,6 +584,56 @@ async def test_build_bundle_directory_ownership_applied_only_when_requested(sess
         tmp_dir_ctx.cleanup()
 
 
+def _directory_tar_with_dir_entries() -> bytes:
+    """PVE-style tar=1 for a `Downloads` selection: the directory entries
+    themselves (owner nobody:nogroup, 0750) ahead of their files."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tf:
+        for name in ("Downloads", "Downloads/sub"):
+            d = tarfile.TarInfo(name=name)
+            d.type = tarfile.DIRTYPE
+            d.uid, d.gid, d.mode, d.mtime = 65534, 65534, 0o750, 1700000000
+            tf.addfile(d)
+        f = tarfile.TarInfo(name="Downloads/sub/a.txt")
+        f.size = 3
+        f.uid, f.gid, f.mode = 65534, 65534, 0o640
+        tf.addfile(f, io.BytesIO(b"abc"))
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("restore_ownership", [True, False])
+async def test_build_bundle_carries_directory_owner_and_mode_only_with_restore_ownership(
+    session_data, monkeypatch, restore_ownership
+):
+    """Without the directory entries tar creates the extracted directories
+    itself, as root with a default mode, instead of the source owner."""
+    _patch_bundle_download(monkeypatch, {"RG93bmxvYWRz": _directory_tar_with_dir_entries()})
+    items = [BundleItem(filepath="RG93bmxvYWRz", name="Downloads", leaf=False)]
+    output_path, _fmt, manifest, tmp_dir_ctx = await build_bundle(
+        session_data,
+        "pbs:backup/vm/133/2026-09-01",
+        items,
+        guest_os_family="linux",
+        zst_capable=False,
+        restore_ownership=restore_ownership,
+    )
+    try:
+        with tarfile.open(output_path, mode="r:gz") as tf:
+            members = tf.getmembers()
+        names = [m.name for m in members]
+        dirs = {m.name: m for m in members if m.isdir()}
+        if restore_ownership:
+            # Each directory precedes its contents, with the source owner/mode/mtime.
+            assert names.index("Downloads") < names.index("Downloads/sub") < names.index("Downloads/sub/a.txt")
+            for d in dirs.values():
+                assert (d.uid, d.gid, d.mode & 0o7777, d.mtime) == (65534, 65534, 0o750, 1700000000)
+        else:
+            assert dirs == {}
+        assert len(manifest) == 1  # files only - sha256sum -c can't check a directory
+    finally:
+        tmp_dir_ctx.cleanup()
+
+
 async def test_build_bundle_restore_ownership_is_forced_off_for_windows(session_data, monkeypatch, tmp_path):
     """Defense-in-depth, same pattern as /api/restore's job-creation
     time for single-file restore (#20): NTFS has no uid/gid/mode

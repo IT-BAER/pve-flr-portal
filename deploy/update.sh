@@ -21,9 +21,14 @@ TARGET="${1:-latest}"
 
 cd "$APP_DIR"
 
-# Same "dubious ownership" issue install.sh works around - harmless to
-# repeat here since --system + --add is idempotent.
-git config --system --add safe.directory "$APP_DIR"
+# git/pip run as root below, so the tree they act on must be root-owned
+# (install.sh's layout; an install from before that layout had it owned
+# by $APP_USER). Only certs/ stays writable by the service.
+chown -R root:root "$APP_DIR"
+chown root:"$APP_USER" "$APP_DIR/.env"
+chmod 0640 "$APP_DIR/.env"
+install -d -o "$APP_USER" -g "$APP_USER" -m 0750 "$APP_DIR/certs"
+chown -R "$APP_USER":"$APP_USER" "$APP_DIR/certs"
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "Refusing to update: $APP_DIR has local/uncommitted changes." >&2
@@ -63,10 +68,11 @@ else
 fi
 
 echo "==> Installing dependencies"
-"$APP_DIR/.venv/bin/pip" install --quiet --upgrade pip
-"$APP_DIR/.venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
+"$APP_DIR/.venv/bin/pip" install --quiet --require-hashes -r "$APP_DIR/requirements.lock"
 
-chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+echo "==> Refreshing the systemd unit"
+sed "s#__APP_DIR__#${APP_DIR}#g; s#__APP_USER__#${APP_USER}#g"   "$APP_DIR/deploy/pve-flr-portal.service.template" > "/etc/systemd/system/${SERVICE_NAME}.service"
+systemctl daemon-reload
 
 echo "==> Restarting $SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"

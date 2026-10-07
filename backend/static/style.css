@@ -144,6 +144,31 @@
   box-shadow: 0 1px 0 var(--border);
 }
 
+/* Open Sans (OFL-1.1, see NOTICE), served locally - latin subset only. */
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("fonts/open-sans-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("fonts/open-sans-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Open Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("fonts/open-sans-latin-700-normal.woff2") format("woff2");
+}
+
 * {
   box-sizing: border-box;
 }
@@ -755,6 +780,10 @@ body {
 
 .user-dropdown-item:hover {
   background: var(--tree-hover);
+}
+
+.user-dropdown-form {
+  margin: 0;
 }
 
 .about-box {

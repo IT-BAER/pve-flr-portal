@@ -35,6 +35,18 @@ _log = logging.getLogger("pve_flr_portal.tls")
 _AUTOGEN_ORG = "pve-flr-portal (auto-generated)"
 
 
+def _write_new_file(path: Path, data: bytes, mode: int) -> None:
+    """Writes `path` as a fresh file that has `mode` from creation on,
+    independent of the umask - a leftover file is removed first so its
+    mode is never inherited (O_EXCL)."""
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
+    with os.fdopen(fd, "wb") as f:
+        if hasattr(os, "fchmod"):
+            os.fchmod(f.fileno(), mode)
+        f.write(data)
+
+
 def _write_self_signed(
     cert_path: Path,
     key_path: Path,
@@ -88,11 +100,12 @@ def _write_self_signed(
     # Write both to temp files first, then os.replace() each into place -
     # a crash/restart mid-write (this app has been observed in a systemd
     # restart loop) must never leave a NEW key next to an OLD cert, which
-    # is its own KEY_VALUES_MISMATCH startup failure.
+    # is its own KEY_VALUES_MISMATCH startup failure. The key is 0600 from
+    # creation on (never world-readable, not even briefly); the cert 0644.
     key_tmp = key_path.with_suffix(key_path.suffix + ".tmp")
     cert_tmp = cert_path.with_suffix(cert_path.suffix + ".tmp")
-    key_tmp.write_bytes(key_pem)
-    cert_tmp.write_bytes(cert_pem)
+    _write_new_file(key_tmp, key_pem, 0o600)
+    _write_new_file(cert_tmp, cert_pem, 0o644)
     os.replace(key_tmp, key_path)
     os.replace(cert_tmp, cert_path)
 

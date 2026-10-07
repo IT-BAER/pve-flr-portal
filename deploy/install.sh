@@ -13,16 +13,6 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_USER="pveflr"
 SERVICE_NAME="pve-flr-portal"
 
-# Git's "dubious ownership" safety check (CVE-2022-24765) rejects git
-# commands against a repo it doesn't consider safely owned - confirmed
-# live 2026-09-01 under an unprivileged LXC container, where a `pct exec`
-# root shell's git still tripped this against a root-owned clone. --system
-# (not --global) so this holds regardless of which user runs git here -
-# root today, but also $APP_USER after the chown below changes this
-# directory's actual owner, and either way every future `deploy/update.sh`
-# run (issue #89) would otherwise trip the exact same error on.
-git config --system --add safe.directory "$APP_DIR"
-
 echo "==> Installing OS packages"
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip
@@ -34,15 +24,23 @@ fi
 
 echo "==> Creating virtualenv and installing dependencies"
 python3 -m venv "$APP_DIR/.venv"
-"$APP_DIR/.venv/bin/pip" install --quiet --upgrade pip
-"$APP_DIR/.venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt"
+"$APP_DIR/.venv/bin/pip" install --quiet --require-hashes -r "$APP_DIR/requirements.lock"
 
 if [ ! -f "$APP_DIR/.env" ]; then
   echo "==> Creating .env from .env.example - EDIT THIS before it'll work"
   cp "$APP_DIR/.env.example" "$APP_DIR/.env"
 fi
 
-chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+# Code, .git, .venv and .env stay root-owned, so the service user can't
+# change what root later runs (update.sh runs git/pip as root here). The
+# service reads .env via its group and writes only certs/ (its
+# self-signed cert) and its StateDirectory.
+echo "==> Setting ownership (root-owned app, $APP_USER-writable certs/)"
+chown -R root:root "$APP_DIR"
+chown root:"$APP_USER" "$APP_DIR/.env"
+chmod 0640 "$APP_DIR/.env"
+install -d -o "$APP_USER" -g "$APP_USER" -m 0750 "$APP_DIR/certs"
+chown -R "$APP_USER":"$APP_USER" "$APP_DIR/certs"
 
 echo "==> Installing systemd unit"
 # The unit's StateDirectory=pve-flr-portal makes systemd create + own

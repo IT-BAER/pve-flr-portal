@@ -41,6 +41,9 @@ def client(session_data, monkeypatch):
     main.app.dependency_overrides[auth.get_session] = lambda: session_data
     main.app.dependency_overrides[auth.get_session_keepalive] = lambda: session_data
     with TestClient(main.app) as c:
+        # What the real frontend sends on every state-changing request
+        # (htmx hx-headers / app.js apiFetch).
+        c.headers["X-CSRF-Token"] = session_data.portal_csrf
         yield c
     main.app.dependency_overrides.clear()
 
@@ -53,6 +56,12 @@ def test_index_lists_groups_and_defaults_to_first(client):
     assert "2026-08-30T05:00:00Z" in body
     # The vm/133 group (and its resolved name) still ships in the task-picker JSON.
     assert "webserver" in body
+
+
+def test_index_embeds_the_session_csrf_token_for_htmx_and_fetch(client, session_data):
+    body = client.get("/").text
+    assert f'<meta name="csrf-token" content="{session_data.portal_csrf}">' in body
+    assert f"""hx-headers='{{"X-CSRF-Token": "{session_data.portal_csrf}"}}'""" in body
 
 
 def test_index_respects_task_query(client):
@@ -1240,6 +1249,41 @@ def test_restore_jobs_cancel_unknown_job_404s(client):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("post", "/api/restore"), ("post", "/api/restore-jobs/some-job/cancel"), ("post", "/logout")],
+)
+@pytest.mark.parametrize("token", [None, "wrong-token"])
+def test_state_changing_routes_reject_a_missing_or_wrong_csrf_token(client, monkeypatch, method, path, token):
+    from backend import restore_runner
+
+    async def never_runs(job, jobs):
+        raise AssertionError("must not be reached")
+
+    monkeypatch.setattr(restore_runner, "run_restore", never_runs)
+    del client.headers["X-CSRF-Token"]
+    headers = {} if token is None else {"X-CSRF-Token": token}
+    resp = getattr(client, method)(path, data=_restore_form(), headers=headers, follow_redirects=False)
+    assert resp.status_code == 403
+    assert "CSRF" in resp.json()["detail"]
+
+
+def test_restore_accepts_the_csrf_token_as_a_form_field(client, session_data, monkeypatch):
+    from backend import guest_agent, restore_runner
+
+    async def fake_caps(session, guest_type, vmid):
+        return _available_caps()
+
+    async def never_runs(job, jobs):
+        pass
+
+    monkeypatch.setattr(guest_agent, "get_restore_capabilities", fake_caps)
+    monkeypatch.setattr(restore_runner, "run_restore", never_runs)
+    del client.headers["X-CSRF-Token"]
+    resp = client.post("/api/restore", data=_restore_form(csrf_token=session_data.portal_csrf))
+    assert resp.status_code == 200
+
+
 def test_restore_jobs_detail_returns_log(client, monkeypatch):
     from backend import guest_agent, restore_jobs, restore_runner
 
@@ -1778,10 +1822,19 @@ def test_logout_clears_cookie_and_session(session_data):
     auth._sessions["session-xyz"] = session_data
     with TestClient(main.app) as c:
         c.cookies.set("session_id", "session-xyz")
-        resp = c.get("/logout", follow_redirects=False)
+        resp = c.post("/logout", data={"csrf_token": session_data.portal_csrf}, follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login"
     assert "session-xyz" not in auth._sessions
+
+
+def test_logout_is_not_reachable_by_get(session_data):
+    auth._sessions["session-xyz"] = session_data
+    with TestClient(main.app) as c:
+        c.cookies.set("session_id", "session-xyz")
+        resp = c.get("/logout", follow_redirects=False)
+    assert resp.status_code == 405
+    assert "session-xyz" in auth._sessions
 
 
 # --- Design C download endpoint (docs/plan.md §7.6, issue #22) -----------

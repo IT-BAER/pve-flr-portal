@@ -16,10 +16,10 @@ import logging
 import re
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from .config import settings
 
@@ -53,6 +53,10 @@ class SessionData:
     csrf_token: str
     ticket_issued_at: float
     last_activity_at: float
+    # This app's own per-session CSRF token (unrelated to PVE's
+    # csrf_token above): embedded in the page, sent back by htmx/app.js as
+    # X-CSRF-Token (or a `csrf_token` form field) on state-changing POSTs.
+    portal_csrf: str = field(default_factory=lambda: secrets.token_urlsafe(32))
 
 
 _sessions: dict[str, SessionData] = {}
@@ -287,3 +291,19 @@ async def get_session_keepalive(request: Request) -> SessionData:
     """Auth dependency for background polls - validates the session and
     enforces the idle timeout, but does NOT reset it."""
     return await _resolve_session(request, touch=False)
+
+
+_FORM_CONTENT_TYPES = ("application/x-www-form-urlencoded", "multipart/form-data")
+
+
+async def get_session_csrf(request: Request, session: SessionData = Depends(get_session)) -> SessionData:
+    """Auth dependency for state-changing requests: get_session, plus the
+    session's portal_csrf token from the X-CSRF-Token header or a
+    `csrf_token` form field. The SameSite=Lax cookie stays as a second
+    layer; this check does not depend on it."""
+    token = request.headers.get("X-CSRF-Token")
+    if token is None and request.headers.get("content-type", "").startswith(_FORM_CONTENT_TYPES):
+        token = (await request.form()).get("csrf_token")
+    if not isinstance(token, str) or not secrets.compare_digest(token, session.portal_csrf):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+    return session

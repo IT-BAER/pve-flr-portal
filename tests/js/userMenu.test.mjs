@@ -10,15 +10,6 @@ test('stores the identity and starts closed', () => {
   assert.equal(m.aboutOpen, false);
 });
 
-test('logout closes the menu and navigates to /logout', () => {
-  const { userMenu, window } = loadApp();
-  const m = userMenu('alice@pam');
-  m.open = true;
-  m.logout();
-  assert.equal(m.open, false);
-  assert.equal(window.location, '/logout');
-});
-
 // --- Color theme (issue #29) ---
 
 function themeEnv(stored, osPrefersLight = false) {

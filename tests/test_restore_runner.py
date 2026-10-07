@@ -640,6 +640,108 @@ def _patch_download_with_tar(monkeypatch, content: bytes, tar_content: bytes):
     monkeypatch.setattr(pve_client, "open_download", fake_open_download)
 
 
+async def _run_single_chunk_mode_case(
+    manager, session_data, monkeypatch, *, tar_content, family="linux", exec_ok=True, chmod_exit=0, **job_kw
+):
+    """Single-chunk agent/file-write restore; returns (job, exec_calls,
+    writes) with every exec call recorded in order alongside the write."""
+    job = _make_job(manager, session_data, destination="/etc/hosts", **job_kw)
+    _patch_download_with_tar(monkeypatch, b"small", tar_content)
+    calls = []
+
+    async def fake_caps(session, guest_type, vmid):
+        design_b = guest_agent.PathAvailability(exec_ok, None if exec_ok else "missing Unrestricted")
+        return _available_caps(guest_os_family=family, design_b=design_b)
+
+    async def fake_exec(session, guest_type, vmid, argv, **kwargs):
+        calls.append(argv)
+        if argv[0] == "chmod" and argv[1] != "u+w":
+            return chmod_exit, "", "Operation not permitted" if chmod_exit else ""
+        return 0, "", ""
+
+    async def fake_write(session, guest_type, vmid, path, content, **kwargs):
+        calls.append(["<file-write>", path])
+
+    monkeypatch.setattr(guest_agent, "get_restore_capabilities", fake_caps)
+    monkeypatch.setattr(pve_client, "write_guest_file", fake_write)
+    monkeypatch.setattr(pve_client, "run_guest_exec", fake_exec)
+    await run_restore(job, manager)
+    return job, calls
+
+
+async def test_single_chunk_write_applies_the_source_mode_after_file_write(manager, session_data, monkeypatch):
+    """agent/file-write has no mode parameter - qemu-ga creates the file
+    0666 (observed live on Debian 12) - so the source mode from the
+    backup's tar header is set explicitly afterwards."""
+    tar_bytes = _make_tar_bytes("hosts", uid=0, gid=0, mode=0o100640)
+    job, calls = await _run_single_chunk_mode_case(manager, session_data, monkeypatch, tar_content=tar_bytes)
+    assert job.status == RestoreStatus.DONE
+    write_at = calls.index(["<file-write>", "/etc/hosts"])
+    assert ["chmod", "640", "/etc/hosts"] in calls[write_at + 1 :]
+
+
+async def test_single_chunk_write_drops_setuid_setgid_without_ownership(manager, session_data, monkeypatch):
+    """Without chown the file stays root-owned, so a user's 4755 binary
+    must not become setuid-root."""
+    tar_bytes = _make_tar_bytes("hosts", uid=1000, gid=1000, mode=0o106755)
+    job, calls = await _run_single_chunk_mode_case(manager, session_data, monkeypatch, tar_content=tar_bytes)
+    assert job.status == RestoreStatus.DONE
+    write_at = calls.index(["<file-write>", "/etc/hosts"])
+    assert ["chmod", "755", "/etc/hosts"] in calls[write_at + 1 :]
+
+
+async def test_single_chunk_write_without_source_mode_removes_group_and_world_write(
+    manager, session_data, monkeypatch
+):
+    """No metadata: `go-w` turns a new file's 0666 into 0644 without
+    widening an existing, more restrictive destination."""
+    job, calls = await _run_single_chunk_mode_case(
+        manager, session_data, monkeypatch, tar_content=b"not a tar file at all"
+    )
+    assert job.status == RestoreStatus.DONE
+    write_at = calls.index(["<file-write>", "/etc/hosts"])
+    assert ["chmod", "go-w", "/etc/hosts"] in calls[write_at + 1 :]
+
+
+async def test_single_chunk_write_mode_failure_is_a_logged_warning(manager, session_data, monkeypatch):
+    tar_bytes = _make_tar_bytes("hosts", uid=0, gid=0, mode=0o100644)
+    job, _calls = await _run_single_chunk_mode_case(
+        manager, session_data, monkeypatch, tar_content=tar_bytes, chmod_exit=1
+    )
+    assert job.status == RestoreStatus.DONE
+    assert any("Warning" in line and "permissions" in line for line in job.log_lines)
+
+
+async def test_single_chunk_write_without_exec_warns_that_permissions_were_not_set(
+    manager, session_data, monkeypatch
+):
+    job, calls = await _run_single_chunk_mode_case(
+        manager, session_data, monkeypatch, tar_content=b"", exec_ok=False
+    )
+    assert job.status == RestoreStatus.DONE
+    assert not any(c[0] == "chmod" for c in calls)
+    assert any("Warning" in line and "permissions could not be set" in line for line in job.log_lines)
+
+
+async def test_single_chunk_write_never_sets_a_mode_on_windows(manager, session_data, monkeypatch):
+    job, calls = await _run_single_chunk_mode_case(
+        manager, session_data, monkeypatch, tar_content=b"", family="windows"
+    )
+    assert job.status == RestoreStatus.DONE
+    assert not any(c[0] == "chmod" for c in calls)
+    assert not any("permissions could not be set" in line for line in job.log_lines)
+
+
+async def test_restore_ownership_undetermined_still_removes_group_and_world_write(
+    manager, session_data, monkeypatch
+):
+    job, calls = await _run_single_chunk_mode_case(
+        manager, session_data, monkeypatch, tar_content=b"not a tar file at all", restore_ownership=True
+    )
+    assert job.status == RestoreStatus.DONE
+    assert ["chmod", "go-w", "/etc/hosts"] in calls
+
+
 async def test_restore_ownership_runs_chown_and_chmod_on_linux(manager, session_data, monkeypatch):
     job = _make_job(manager, session_data, destination="/etc/hosts", restore_ownership=True)
     tar_bytes = _make_tar_bytes("hosts", uid=1000, gid=1000, mode=0o100644)
@@ -1373,6 +1475,9 @@ async def _run_dnt_verify_ca(manager, session_data, monkeypatch, *, update_exit=
             return 0, "/usr/sbin/update-ca-certificates", ""
         if argv[:2] == ["sh", "-c"] and "command -v update-ca-trust" in argv[2]:
             return 1, "", ""
+        if argv[0] == "chmod" and argv[1] == "644":
+            written.append(("<chmod 644>", argv[2]))
+            return 0, "", ""
         if argv == ["update-ca-certificates"]:
             return update_exit, "", "" if update_exit == 0 else "update failed"
         if argv[0] == "curl":
@@ -1394,7 +1499,10 @@ async def test_design_c_verify_installs_the_ca_then_fetches_with_verification(ma
     _dnt_settings(monkeypatch, restore_data_nic_tls_install_ca="always")
     job, curl_argv, written = await _run_dnt_verify_ca(manager, session_data, monkeypatch, update_exit=0)
     assert job.status == RestoreStatus.DONE
-    assert written == [("/usr/local/share/ca-certificates/pve-flr-portal-data-plane.crt", "PEM-DATA")]
+    anchor = "/usr/local/share/ca-certificates/pve-flr-portal-data-plane.crt"
+    # agent/file-write creates the anchor 0666; it must not stay writable
+    # for other guest users (they could swap in their own CA).
+    assert written == [(anchor, "PEM-DATA"), ("<chmod 644>", anchor)]
     assert "-k" not in curl_argv  # still verifying
     assert any("Installed the data-plane CA" in line for line in job.log_lines)
 

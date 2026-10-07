@@ -18,7 +18,14 @@ function redirectToLogin() {
 // for the caller's own !resp.ok handling; on 401 it triggers the
 // redirect and returns a promise that never settles, so the caller does
 // not also flash its generic error in the moment before navigation.
+// Non-GET requests carry the session CSRF token from base.html's meta tag.
 async function apiFetch(input, init) {
+  const method = ((init && init.method) || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    const token = meta ? meta.getAttribute('content') : '';
+    init = { ...init, headers: { ...(init.headers || {}), 'X-CSRF-Token': token } };
+  }
   const resp = await fetch(input, init);
   if (resp.status === 401) {
     redirectToLogin();
@@ -295,10 +302,6 @@ function userMenu(identity) {
       }
       applyTheme(this.theme);
       this.themeOpen = false;
-    },
-    logout() {
-      this.open = false;
-      window.location = '/logout';
     },
   };
 }

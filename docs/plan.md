@@ -960,8 +960,12 @@ arbitrary feature line):
 - **Design A — quick restore.** A single file whose content fits in
   one `agent/file-write` call. No `guest-exec` anywhere in the path —
   works even where exec is blocked (RHEL-family guests). Needs only
-  `VM.GuestAgent.FileWrite`. Lands `root:root`/SYSTEM, mode `0644`,
-  fresh mtime — stated plainly in the UI, not hidden in a tooltip.
+  `VM.GuestAgent.FileWrite`. Lands `root:root`/SYSTEM, fresh mtime —
+  stated plainly in the UI, not hidden in a tooltip. `agent/file-write`
+  has no mode parameter and qemu-ga creates new files `0666` (observed
+  live, Debian 12 guest): with guest-exec available a Linux/BSD file is
+  `chmod`ed to its backed-up mode (else `go-w`); without it the job log
+  warns that permissions could not be set.
 - **Design B — full restore.** Anything Design A can't do in one call:
   larger files, directories, or a request to preserve metadata.
   Mechanism (per your assumption, confirmed as the right shape given
@@ -2967,11 +2971,12 @@ recorded here so the ceiling is known before anyone leans on it.
   reasonable cost for the convenience on a single-admin internal tool;
   would be the first thing to revisit if PH.6's cache ever lands.
 
-- **In-memory sessions + `reload=True`, one worker** (`run.py`): can't
+- **In-memory sessions, one worker** (`run.py`): can't
   run multiple uvicorn workers or scale horizontally — each worker would
-  have its own `auth._sessions`. `reload=True` is a dev setting. One
-  core for all Python work. *Fix: drop `reload`, add a systemd unit;
-  stay single-worker or move sessions to the SQLite file if PH.6 lands.*
+  have its own `auth._sessions`. Auto-reload is off unless
+  `PFR_RELOAD=true` (a dev setting). One core for all Python work.
+  *Fix: stay single-worker or move sessions to the SQLite file if PH.6
+  lands.*
 - **`httpx.AsyncClient` per call.** Every `pve_client` function opens a
   fresh client — new TLS handshake, no connection pooling. Wasteful
   under load, negligible at the scale this app runs at. *Fix: one
@@ -3040,7 +3045,9 @@ happens to be on `main`:
 - `deploy/update.sh <version>` moves an existing install to a specific
   tagged release (`v1.4.0` or `1.4.0`), to `latest`, or to `main` for
   bleeding-edge/unreleased work — `git fetch --tags`, checkout,
-  reinstall `requirements.txt`, re-chown, restart the systemd unit.
+  reinstall the hash-locked `requirements.lock`, keep the tree
+  root-owned (only `certs/` writable by the service user), refresh the
+  systemd unit, restart it.
   Refuses if the app directory has local/uncommitted changes rather
   than silently discarding them.
 

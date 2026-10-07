@@ -135,7 +135,10 @@
     </div>
     <button type="button" class="user-dropdown-item" @click="openThemeModal()">Color Theme</button>
     <button type="button" class="user-dropdown-item" @click="open = false; aboutOpen = true">About</button>
-    <button type="button" class="user-dropdown-item" @click="logout()">Logout</button>
+    <form method="post" action="/logout" class="user-dropdown-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="user-dropdown-item" @click="open = false">Logout</button>
+    </form>
   </div>
 
   <div class="modal-overlay" x-show="themeOpen" x-cloak @click.self="themeOpen = false" @keydown.escape.window="themeOpen = false">

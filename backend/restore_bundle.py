@@ -417,9 +417,23 @@ def _add_directory_entries_to_tar(
     (e.g. `Downloads/file.txt` for a `Downloads` selection), confirmed
     live 2026-09-02 by a real restore landing files under a doubled
     `Downloads/Downloads/` because this used to re-prefix on top of
-    that (issue #66/#26)."""
+    that (issue #66/#26).
+
+    With `apply_ownership`, directory members are copied too (no content,
+    not in the manifest), so the guest's tar applies their owner/mode/mtime
+    instead of creating them itself as root with a default mode. GNU tar
+    sets directory attributes after extracting their contents."""
     with _open_local_tar(local_tar_path) as sub:
         for member in sub:
+            if member.isdir() and apply_ownership:
+                dinfo = tarfile.TarInfo(name=member.name)
+                dinfo.type = tarfile.DIRTYPE
+                dinfo.mtime = member.mtime
+                dinfo.uid = member.uid
+                dinfo.gid = member.gid
+                dinfo.mode = member.mode & 0o7777
+                tf.addfile(dinfo)
+                continue
             if not member.isfile():
                 continue
             arcname = member.name

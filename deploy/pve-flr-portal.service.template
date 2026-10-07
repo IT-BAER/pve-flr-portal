@@ -16,11 +16,12 @@ RestartSec=5
 # /var/lib/pve-flr-portal - persists across restarts and redeploys.
 StateDirectory=pve-flr-portal
 Environment=PFR_DATA_DIR=%S/pve-flr-portal
-# Self-signed cert + venv live under the app dir (StateDirectory above
-# is made writable automatically).
+# The app dir (code, venv, .env) is root-owned and read-only here; the
+# service writes only certs/ (self-signed cert) and the StateDirectory
+# above, which systemd makes writable automatically.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=__APP_DIR__
+ReadWritePaths=__APP_DIR__/certs
 PrivateTmp=true
 
 [Install]

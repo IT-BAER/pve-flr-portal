@@ -190,12 +190,12 @@ def test_pve_verify_ssl_modes(monkeypatch, tmp_path):
     monkeypatch.setenv("PVE_VERIFY_SSL", "false")
 
 
-def test_reload_defaults_on_and_can_be_turned_off(monkeypatch):
+def test_reload_defaults_off_and_can_be_turned_on(monkeypatch):
     monkeypatch.delenv("PFR_RELOAD", raising=False)
     try:
-        assert importlib.reload(config).settings.reload is True
-        monkeypatch.setenv("PFR_RELOAD", "false")
         assert importlib.reload(config).settings.reload is False
+        monkeypatch.setenv("PFR_RELOAD", "true")
+        assert importlib.reload(config).settings.reload is True
     finally:
         monkeypatch.delenv("PFR_RELOAD", raising=False)
         importlib.reload(config)

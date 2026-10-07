@@ -199,8 +199,11 @@ pveum role add FileRestoreOperator -privs "VM.GuestAgent.Audit,VM.GuestAgent.Fil
   supports (capability detection) — grant it alongside either of the
   other two below, not on its own.
 - `VM.GuestAgent.FileWrite` enables **quick restore**: small files
-  written straight into the guest, landing `root:root`/SYSTEM, mode
-  `0644`, fresh mtime — no further guest access needed.
+  written straight into the guest, landing `root:root`/SYSTEM, fresh
+  mtime — no further guest access needed. With FileWrite alone a new
+  file keeps the guest agent's own creation mode (`0666` on qemu-ga),
+  which the job log warns about; with `Unrestricted` a Linux/BSD file
+  gets its backed-up mode (else group/world write is removed, `0644`).
 - `VM.GuestAgent.Unrestricted` enables **full restore**: larger files,
   directories, and the optional "restore metadata" / "verify"
   upgrades. This is a much larger grant — Proxmox doesn't expose a
@@ -312,11 +315,28 @@ over a Debian package on the host or a full VM/OVA is in docs/plan.md
 Run `bash deploy/update.sh` inside the container/host to
 update to the latest release, `bash deploy/update.sh v1.4.0` (or
 `1.4.0`) to pin to a specific one, or `bash deploy/update.sh main` for
-unreleased/bleeding-edge work. Reinstalls dependencies if
-`requirements.txt` changed and restarts the service; refuses to run if
-the install directory has local/uncommitted changes rather than
-discarding them. See docs/plan.md §10 for how this maps onto the
-project's SemVer-tagged release channel.
+unreleased/bleeding-edge work. Reinstalls dependencies from the
+hash-locked `requirements.lock`, refreshes the systemd unit and restarts
+the service; refuses to run if the install directory has
+local/uncommitted changes rather than discarding them. See
+docs/plan.md §10 for how this maps onto the project's SemVer-tagged
+release channel.
+
+**File ownership**: the app directory (code, `.git`, `.venv`) is owned
+by root, and `install.sh`/`update.sh` run git and pip as root. `.env` is
+`root:pveflr` mode `0640` (readable by the service, not writable). The
+service user `pveflr` can write only `certs/` (its self-signed cert)
+and its state directory; the systemd unit's `ReadWritePaths=` is limited
+to `certs/`. An install from an older version had the whole directory
+owned by `pveflr`: run `bash deploy/update.sh` twice (the first run
+still uses the old script), or `bash deploy/install.sh` once, to move it
+to this layout.
+
+**Dependencies**: `requirements.txt` is the human-edited list;
+`requirements.lock` pins every package with hashes for Linux/Python 3.11
+and is what `install.sh`, `update.sh` and the `Dockerfile` install
+(`pip install --require-hashes`). After changing `requirements.txt`,
+regenerate the lock with the `uv pip compile` command in its header.
 
 The systemd unit's `StateDirectory=` puts the app-state dir
 (`PFR_DATA_DIR`) at `/var/lib/pve-flr-portal`, created and owned by the

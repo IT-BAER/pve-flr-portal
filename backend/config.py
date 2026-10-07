@@ -136,9 +136,8 @@ class Settings:
     tls_cert_file: str
     tls_key_file: str
     # Whether run.py serves with uvicorn's auto-reload (restart on a code
-    # change). On by default for a source checkout; the container image
-    # turns it off (PFR_RELOAD=false), since its code never changes under
-    # it and reload adds a file-watching supervisor process.
+    # change). Off unless PFR_RELOAD is explicitly enabled - a development
+    # convenience only; reload adds a file-watching supervisor process.
     reload: bool
 
     # PH.5: minimum gap this app waits between the *end* of one
@@ -303,7 +302,7 @@ settings = Settings(
     port=_int("PORT", 8008),
     tls_cert_file=_get("TLS_CERT_FILE", "certs/portal.crt"),
     tls_key_file=_get("TLS_KEY_FILE", "certs/portal.key"),
-    reload=_bool("PFR_RELOAD", True),
+    reload=_bool("PFR_RELOAD", False),
     guest_agent_min_command_gap_seconds=_float("GUEST_AGENT_MIN_COMMAND_GAP_SECONDS", 0.0),
     file_restore_list_max_concurrency=_int("FILE_RESTORE_LIST_MAX_CONCURRENCY", 2),
     restore_data_nics_json=_get("RESTORE_DATA_NICS", "[]"),

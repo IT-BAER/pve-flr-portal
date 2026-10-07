@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}File Level Restore Portal for Proxmox Backup Server{% endblock %}</title>
   {# Theme (issue #29): resolve the persisted choice before first paint so
      there is no light-to-dark flash. Kept in sync afterwards by userMenu
@@ -26,12 +27,11 @@
   <script src="/static/vendor/htmx.min.js?v={{ static_version('vendor/htmx.min.js') }}"></script>
   <script src="/static/app.js?v={{ static_version('app.js') }}"></script>
   <script defer src="/static/vendor/alpine.min.js?v={{ static_version('vendor/alpine.min.js') }}"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v={{ static_version('style.css') }}">
 </head>
-<body>
+{# Every htmx request carries the session CSRF token; app.js's apiFetch()
+   reads the meta tag above for its own POSTs. #}
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
   <header class="topbar">
     <div class="topbar-brand">
       <img class="topbar-icon" src="/static/assets/logo.png?v={{ static_version('assets/logo.png') }}" alt="">

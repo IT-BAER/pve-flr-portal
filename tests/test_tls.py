@@ -1,6 +1,9 @@
 import datetime
 import ipaddress
+import os
+import stat
 
+import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -58,6 +61,27 @@ def test_generates_cert_and_key(tmp_path):
     assert parsed.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == "pve.example"
     dns = _san(cert).get_values_for_type(x509.DNSName)
     assert "pve.example" in dns and "localhost" in dns
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+@pytest.mark.parametrize("data_plane", [False, True])
+def test_generated_key_is_0600_and_cert_0644_even_with_umask_0(tmp_path, data_plane):
+    cert, key = tmp_path / "x.crt", tmp_path / "x.key"
+    # A stale world-readable temp file from an interrupted earlier run must
+    # not carry its mode over to the new key.
+    stale = tmp_path / "x.key.tmp"
+    stale.write_bytes(b"old")
+    stale.chmod(0o644)
+    old_umask = os.umask(0)
+    try:
+        if data_plane:
+            ensure_data_plane_cert(cert, key, ("10.0.0.5",))
+        else:
+            ensure_self_signed_cert(cert, key)
+    finally:
+        os.umask(old_umask)
+    assert stat.S_IMODE(key.stat().st_mode) == 0o600
+    assert stat.S_IMODE(cert.stat().st_mode) == 0o644
 
 
 def test_does_not_regenerate_a_valid_pair(tmp_path):

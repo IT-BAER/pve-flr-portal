@@ -382,6 +382,13 @@ async def _ensure_guest_trusts_ca(job: RestoreJob, guest_os_family: str | None) 
             job.log("Guest already has the data-plane CA anchor file.")
             return True
         await pve_client.write_guest_file(job.session, job.guest_type, job.vmid, anchor, pem, node=job.node)
+        # agent/file-write creates it 0666 - a trust anchor must not be
+        # writable by other guest users.
+        code, out, err = await _exec(job, ["chmod", "644", anchor])
+        if code != 0:
+            job.log(f"Could not set permissions on the data-plane CA anchor: {(err or out).strip()}")
+            await _exec(job, ["rm", "-f", anchor])  # best effort: never leave a writable anchor behind
+            return False
         code, out, err = await _exec(job, guest_ca.linux_update_argv(has_update_ca_certificates=has_deb))
         if code != 0:
             job.log(f"Could not refresh the guest CA trust store: {(err or out).strip()}")
@@ -690,6 +697,23 @@ async def _restore_ownership(job: RestoreJob, uid: int, gid: int, mode: int) -> 
     exitcode, out, err = await _exec(job, ["chmod", format(mode, "o"), job.destination])
     if exitcode != 0:
         raise RuntimeError(f"Could not restore permissions: {err.strip() or out.strip()}")
+
+
+async def _set_restored_file_mode(job: RestoreJob, source_mode: int | None) -> None:
+    """`agent/file-write` takes no mode, and qemu-ga creates a new file
+    0666 (observed live on a Debian 12 guest). Applies the source mode, or
+    without one removes group/world write (`go-w`: a new 0666 file becomes
+    0644, an existing stricter one is never widened). Linux/BSD only. A
+    failed chmod (e.g. a vfat mount) is a logged warning, not a failure.
+    No chown here, so setuid/setgid are dropped: the file stays root-owned."""
+    mode_arg = "go-w" if source_mode is None else format(source_mode & ~0o6000, "o")
+    exitcode, out, err = await _exec(job, ["chmod", mode_arg, job.destination])
+    if exitcode != 0:
+        job.log(
+            f"Warning: could not set the restored file's permissions ({mode_arg}): {err.strip() or out.strip()}"
+        )
+        return
+    job.log(f"Set the restored file's permissions ({mode_arg}).")
 
 
 def _parse_certutil_hash(out: str) -> str:
@@ -1092,6 +1116,16 @@ async def _run_single_file_restore(job: RestoreJob, jobs: RestoreJobManager) -> 
                     job.session, job.guest_type, job.vmid, job.destination, bytes_to_wire_str(first_piece),
                     node=job.node,
                 )
+                if exec_available and guest_os_family in ("linux", "bsd"):
+                    if not job.restore_ownership:  # that step applies the source mode itself
+                        ownership = await _fetch_source_ownership(job)
+                        await _set_restored_file_mode(job, ownership[2] if ownership else None)
+                elif guest_os_family != "windows":
+                    job.log(
+                        "Warning: the restored file's permissions could not be set (needs guest-exec on a "
+                        "Linux/BSD guest) - agent/file-write leaves a new file with the guest agent's "
+                        "default mode (0666 on qemu-ga)."
+                    )
                 if not needs_exec:
                     job.progress_current = 1
                     jobs.mark_done(job.id)
@@ -1202,6 +1236,8 @@ async def _run_single_file_restore(job: RestoreJob, jobs: RestoreJobManager) -> 
                     "Restore ownership/permissions was requested, but the source's original "
                     "ownership could not be determined - skipped."
                 )
+                if guest_os_family in ("linux", "bsd"):
+                    await _set_restored_file_mode(job, None)
             else:
                 uid, gid, mode = ownership
                 job.log(f"Restoring original ownership ({uid}:{gid}) and permissions ({format(mode, 'o')}).")
